@@ -1,0 +1,78 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  background: #f7f3eb; /* hint at the dungeon-map parchment palette */
+  color: #1a1a1a;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 2rem;
+}
+
+.tagline {
+  margin: 0 0 1.5rem;
+  color: #555;
+}
+
+.status {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.status.ok {
+  border-color: #2f7a3a;
+  background: #eaf6ec;
+}
+
+.status.err {
+  border-color: #a83232;
+  background: #f9eaea;
+}
+
+pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.5rem 0 0;
+}
+
+code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1a1712;
+    color: #e8e4db;
+  }
+  .tagline {
+    color: #aaa;
+  }
+  .status.ok {
+    background: #12301a;
+  }
+  .status.err {
+    background: #301212;
+  }
+  pre,
+  code {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}

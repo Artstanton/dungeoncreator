@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Runtime data
+data/
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+
+# Cache
+.cache/
+.turbo/
+coverage/
+
+# Stray pnpm temp files (from failed cross-platform installs)
+_tmp_*
+
+# Reference material kept locally, not committed
+Source Material/
