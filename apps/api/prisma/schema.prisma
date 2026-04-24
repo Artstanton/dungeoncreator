@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Campaign ────────────────────────────────────────────────────────────────
+
+model Campaign {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  dungeons Dungeon[]
+}
+
+// ─── Dungeon ─────────────────────────────────────────────────────────────────
+
+model Dungeon {
+  id         String    @id @default(cuid())
+  name       String
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+  theme     String?
+  crMin     Int
+  crMax     Int
+  seed      String
+  direction String // 'up' | 'down' | 'both'
+
+  // JSON-serialised string[]. Kept as String because SQLite has no native JSON
+  // type and we want explicit control over parse/stringify at the route layer.
+  specificTreasures  String // JSON: string[]
+  specificEncounters String // JSON: string[]
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  levels Level[]
+}
+
+// ─── Level ───────────────────────────────────────────────────────────────────
+
+model Level {
+  id        String  @id @default(cuid())
+  dungeonId String
+  dungeon   Dungeon @relation(fields: [dungeonId], references: [id], onDelete: Cascade)
+
+  index     Int    // 0 = first floor; positive = up, negative = down
+  name      String
+  roomCount Int
+  mapData   String // JSON: MapData (defined in Phase 5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rooms Room[]
+}
+
+// ─── Room ─────────────────────────────────────────────────────────────────────
+
+model Room {
+  id      String @id @default(cuid())
+  levelId String
+  level   Level  @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  index       Int
+  name        String
+  description String
+  encounters  String // JSON: string[]
+  treasure    String // JSON: string[]
+  secrets     String?
+  hooks       String?
+
+  rawAiResponse String? // stored verbatim for debug / replay without re-paying
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

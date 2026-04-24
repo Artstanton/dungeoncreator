@@ -5,6 +5,8 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
 import { pingResponse } from '@dungeon/shared'
+import { campaignRoutes } from './routes/campaigns.js'
+import { dungeonRoutes } from './routes/dungeons.js'
 
 // Load .env from the monorepo root (three levels up from apps/api/src/index.ts).
 // This runs before any env-reading code.
@@ -33,6 +35,8 @@ await app.register(cors, {
 })
 
 await app.register(sensible)
+await app.register(campaignRoutes)
+await app.register(dungeonRoutes)
 
 // Health check. Shared schema lives in packages/shared so the web app can
 // parse the response with the exact same Zod definition.
