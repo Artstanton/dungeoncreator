@@ -350,6 +350,7 @@ export async function generateDungeon(
     specificTreasures: string[]
     randomize?: RandomizeFlags
   },
+  onProgress?: (floorsComplete: number, floorsTotal: number) => void,
 ): Promise<GenerationResult> {
   const emptyRandomize: RandomizeFlags = {
     theme: false,
@@ -373,6 +374,9 @@ export async function generateDungeon(
     },
     params.randomize ?? emptyRandomize,
   )
+
+  // Total floors now known — report 0 complete so the client can show a bar.
+  onProgress?.(0, resolved.floorCount)
 
   // Persist resolved values back to the dungeon record so they're reproducible.
   await prisma.dungeon.update({
@@ -472,6 +476,9 @@ export async function generateDungeon(
         error: message,
       })
     }
+
+    // Report progress after each floor attempt (success or failure).
+    onProgress?.(i + 1, resolved.floorCount)
   }
 
   return {

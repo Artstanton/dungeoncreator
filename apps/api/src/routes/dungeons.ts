@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createDungeonInput, updateRoomInput } from '@dungeon/shared'
 import { prisma } from '../lib/prisma.js'
 import { generateDungeon, checkRateLimit } from '../lib/generate.js'
+import { initProgress, updateProgress, finishProgress, getProgress } from '../lib/progress.js'
 
 /** Deserialise a JSON-column value stored as a string. */
 function parseJson<T>(raw: string): T {
@@ -100,7 +101,8 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // ── POST /api/dungeons ──────────────────────────────────────────────────────
-  // Creates the dungeon record then immediately runs AI generation.
+  // Creates the dungeon record, fires generation in the background, and returns
+  // immediately with the new dungeon id.  The client polls GET ./:id/progress.
   app.post('/api/dungeons', async (req, reply) => {
     const body = createDungeonInput.safeParse(req.body)
     if (!body.success) {
@@ -120,9 +122,8 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       ...rest
     } = body.data
 
-    // Resolve campaign: use existing id, auto-create from name, or no campaign.
+    // Resolve campaign.
     let resolvedCampaignId: string | null = null
-
     if (campaignId) {
       const exists = await prisma.campaign.findUnique({ where: { id: campaignId } })
       if (!exists) return reply.badRequest(`Campaign "${campaignId}" not found.`)
@@ -147,81 +148,76 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
-    // Check rate limit before touching Grok.
+    // Initialise progress entry so the client can start polling immediately.
+    initProgress(dungeon.id)
+
+    // Check rate limit — if hit, mark done immediately with an error message.
     if (!checkRateLimit()) {
-      reply.status(201)
-      return {
-        id: dungeon.id,
-        name: dungeon.name,
-        campaignId: dungeon.campaignId,
-        theme: dungeon.theme,
-        crMin: dungeon.crMin,
-        crMax: dungeon.crMax,
-        seed: dungeon.seed,
-        direction: dungeon.direction,
-        specificTreasures: parseJson<string[]>(dungeon.specificTreasures),
-        specificEncounters: parseJson<string[]>(dungeon.specificEncounters),
-        notes: dungeon.notes,
-        createdAt: dungeon.createdAt.toISOString(),
-        updatedAt: dungeon.updatedAt.toISOString(),
-        generationErrors: [
-          'Rate limit reached (5 generations per minute). The dungeon record was saved — try generating again in a moment.',
-        ],
-      }
+      finishProgress(dungeon.id, [
+        'Rate limit reached (5 generations per minute). The dungeon record was saved — try generating again in a moment.',
+      ])
+      reply.status(202)
+      return { id: dungeon.id }
     }
 
-    // Run AI generation. Partial failures are captured inside generateDungeon
-    // so the dungeon record is always returned even if some floors fail.
-    const generationErrors: string[] = []
+    // Capture values needed by the background task before the handler returns.
+    const genParams = {
+      dungeonName: dungeon.name,
+      theme: dungeon.theme ?? undefined,
+      crMin: dungeon.crMin,
+      crMax: dungeon.crMax,
+      seed: dungeon.seed,
+      direction: dungeon.direction,
+      floorCount,
+      roomsMin,
+      roomsMax,
+      specificEncounters: parseJson<string[]>(dungeon.specificEncounters),
+      specificTreasures: parseJson<string[]>(dungeon.specificTreasures),
+      randomize,
+    }
+    const dungeonId = dungeon.id
 
-    try {
-      const result = await generateDungeon(dungeon.id, {
-        dungeonName: dungeon.name,
-        theme: dungeon.theme ?? undefined,
-        crMin: dungeon.crMin,
-        crMax: dungeon.crMax,
-        seed: dungeon.seed,
-        direction: dungeon.direction,
-        floorCount,
-        roomsMin,
-        roomsMax,
-        specificEncounters: parseJson<string[]>(dungeon.specificEncounters),
-        specificTreasures: parseJson<string[]>(dungeon.specificTreasures),
-        randomize,
-      })
-
-      for (const level of result.levels) {
-        if (level.status === 'error') {
-          const msg = `${level.name}: ${level.error ?? 'generation failed'}`
-          req.log.error({ dungeonId: dungeon.id, level: level.index }, `Generation error — ${msg}`)
-          generationErrors.push(msg)
+    // Fire generation in the background — do not await.
+    void (async () => {
+      const errors: string[] = []
+      try {
+        const result = await generateDungeon(
+          dungeonId,
+          genParams,
+          (floorsComplete, floorsTotal) => updateProgress(dungeonId, floorsComplete, floorsTotal),
+        )
+        for (const level of result.levels) {
+          if (level.status === 'error') {
+            errors.push(`${level.name}: ${level.error ?? 'generation failed'}`)
+          }
         }
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Generation failed unexpectedly.')
       }
-    } catch (err) {
-      req.log.error({ dungeonId: dungeon.id, err }, 'generateDungeon threw unexpectedly')
-      generationErrors.push(err instanceof Error ? err.message : 'Generation failed unexpectedly.')
-    }
+      finishProgress(dungeonId, errors)
+    })()
 
-    // Re-fetch so we return the resolved values written by generateDungeon.
-    const updated = await prisma.dungeon.findUniqueOrThrow({ where: { id: dungeon.id } })
+    reply.status(202)
+    return { id: dungeon.id }
+  })
 
-    reply.status(201)
-    return {
-      id: updated.id,
-      name: updated.name,
-      campaignId: updated.campaignId,
-      theme: updated.theme,
-      crMin: updated.crMin,
-      crMax: updated.crMax,
-      seed: updated.seed,
-      direction: updated.direction,
-      specificTreasures: parseJson<string[]>(updated.specificTreasures),
-      specificEncounters: parseJson<string[]>(updated.specificEncounters),
-      notes: updated.notes,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-      generationErrors,
-    }
+  // ── GET /api/dungeons/:id/progress ─────────────────────────────────────────
+  app.get<{ Params: { id: string } }>('/api/dungeons/:id/progress', async (req, reply) => {
+    const progress = getProgress(req.params.id)
+
+    if (progress) return progress
+
+    // No in-memory entry: either generation finished long ago (server was not
+    // restarted) or the dungeon doesn't exist.  Check the DB.
+    const dungeon = await prisma.dungeon.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { levels: true } } },
+    })
+    if (!dungeon) return reply.notFound('Dungeon not found.')
+
+    // Treat an existing dungeon with levels as fully generated.
+    const n = dungeon._count.levels
+    return { floorsComplete: n, floorsTotal: n, done: true, errors: [] }
   })
 
   // ── PATCH /api/rooms/:id ────────────────────────────────────────────────────

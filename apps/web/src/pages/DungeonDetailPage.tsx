@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getDungeon, updateRoom } from '../api/client'
 import DungeonMap from '../components/DungeonMap'
+import { buildMapSvg } from '../lib/mapSvg'
 import type { DungeonDetail, LevelDetail, Room, MapData } from '@dungeon/shared'
 import { mapDataSchema } from '@dungeon/shared'
 
@@ -24,6 +25,16 @@ function exportDungeon(dungeon: DungeonDetail) {
     dungeon.direction === 'down' ? 'Descending' : 'Both directions'
 
   const levelHtml = dungeon.levels.map((level) => {
+    // Build SVG map for this level
+    let mapSvgHtml = ''
+    try {
+      const raw = JSON.parse(level.mapData ?? '{}') as unknown
+      const result = mapDataSchema.safeParse(raw)
+      if (result.success) {
+        mapSvgHtml = `<div class="map-wrap">${buildMapSvg(result.data)}</div>`
+      }
+    } catch { /* no map */ }
+
     const roomsHtml = level.rooms.map((room) => `
       <div class="room">
         <h3>${room.index + 1}. ${escHtml(room.name)}</h3>
@@ -37,6 +48,7 @@ function exportDungeon(dungeon: DungeonDetail) {
     return `
       <section class="level">
         <h2>${escHtml(level.name)}</h2>
+        ${mapSvgHtml}
         ${roomsHtml}
       </section>`
   }).join('')
@@ -47,7 +59,7 @@ function exportDungeon(dungeon: DungeonDetail) {
 <meta charset="UTF-8">
 <title>${escHtml(dungeon.name)}</title>
 <style>
-  body { font-family: Georgia, serif; max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; }
+  body { font-family: Georgia, serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; }
   h1 { font-size: 2rem; margin-bottom: 0.25rem; }
   .meta { font-size: 0.9rem; color: #555; margin-bottom: 2rem; }
   h2 { font-size: 1.4rem; margin-top: 2rem; border-bottom: 2px solid #c8b890; padding-bottom: 0.3rem; }
@@ -55,7 +67,12 @@ function exportDungeon(dungeon: DungeonDetail) {
   .description { font-style: italic; margin: 0.2rem 0 0.6rem; }
   .room { margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #e8e0cc; }
   p { margin: 0.2rem 0; font-size: 0.9rem; }
-  @media print { body { margin: 1cm; } }
+  .map-wrap { margin: 1.25rem 0 1.5rem; page-break-inside: avoid; }
+  .map-wrap svg { max-width: 100%; height: auto; display: block; border: 1px solid #d8d0c0; border-radius: 4px; }
+  @media print {
+    body { margin: 1cm; }
+    .map-wrap { page-break-after: always; }
+  }
 </style>
 </head>
 <body>

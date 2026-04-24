@@ -756,6 +756,58 @@ code {
 .room-edit-cancel:hover:not(:disabled) { border-color: #7a5c2f; }
 .room-edit-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* ── Generation progress bar ─────────────────────────────────────────────────── */
+
+.gen-progress {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.gen-progress__status {
+  font-size: 1rem;
+  color: #5e4420;
+  margin: 0 0 0.75rem;
+  font-style: italic;
+}
+
+.gen-progress__track {
+  position: relative;
+  height: 12px;
+  background: #e8e0cc;
+  border: 1px solid #c8b890;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0 auto;
+  max-width: 420px;
+}
+
+.gen-progress__fill {
+  height: 100%;
+  background: #7a5c2f;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.gen-progress__indeterminate {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #e8e0cc 25%, #c8a870 50%, #e8e0cc 75%);
+  background-size: 200% 100%;
+  animation: indeterminate-shimmer 1.4s ease infinite;
+}
+
+@keyframes indeterminate-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.gen-progress__pct {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: #7a5c2f;
+  font-weight: 600;
+}
+
 /* ── Page states ─────────────────────────────────────────────────────────────── */
 
 .page-loading {
@@ -853,6 +905,29 @@ code {
   .sub-label,
   .hint {
     color: #888;
+  }
+
+  /* Progress bar dark */
+  .gen-progress__status {
+    color: #c8a870;
+  }
+
+  .gen-progress__track {
+    background: #26221a;
+    border-color: #4a4030;
+  }
+
+  .gen-progress__fill {
+    background: #c8952f;
+  }
+
+  .gen-progress__indeterminate {
+    background: linear-gradient(90deg, #26221a 25%, #7a5c2f 50%, #26221a 75%);
+    background-size: 200% 100%;
+  }
+
+  .gen-progress__pct {
+    color: #c8a870;
   }
 
   /* Detail page dark */

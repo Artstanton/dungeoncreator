@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createDungeonInput, type CampaignListItem } from '@dungeon/shared'
-import { getCampaigns, createDungeon } from '../api/client'
+import { createDungeonInput, type CampaignListItem, type DungeonProgress } from '@dungeon/shared'
+import { getCampaigns, createDungeon, getDungeonProgress } from '../api/client'
 
 type Direction = 'up' | 'down' | 'both'
 
@@ -66,13 +66,40 @@ export function CreateDungeonPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // ── Generation progress state ─────────────────────────────────────────────
+  const [generatingId, setGeneratingId]     = useState<string | null>(null)
+  const [generatingName, setGeneratingName] = useState('')
+  const [progress, setProgress]             = useState<DungeonProgress | null>(null)
+
   useEffect(() => {
     getCampaigns()
       .then(setCampaigns)
-      .catch(() => {
-        // Not fatal — datalist just won't have suggestions.
-      })
+      .catch(() => { /* Not fatal — datalist just won't have suggestions. */ })
   }, [])
+
+  // Poll for progress while generation is running.
+  useEffect(() => {
+    if (!generatingId) return
+    let alive = true
+
+    void (async () => {
+      while (alive) {
+        try {
+          const p = await getDungeonProgress(generatingId)
+          if (!alive) break
+          setProgress(p)
+          if (p.done) {
+            alive = false
+            navigate(`/dungeons/${generatingId}`)
+            return
+          }
+        } catch { /* ignore transient network errors */ }
+        await new Promise<void>((r) => setTimeout(r, 1000))
+      }
+    })()
+
+    return () => { alive = false }
+  }, [generatingId, navigate])
 
   function setField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -171,23 +198,49 @@ export function CreateDungeonPage() {
 
     setSubmitting(true)
     try {
-      const dungeon = await createDungeon(result.data)
-      if (dungeon.generationErrors.length > 0) {
-        // Some floors failed — surface the errors but still navigate so the
-        // user can see what was generated. Phase 7 will add a "regenerate failed
-        // floors" action on the detail page.
-        setSubmitError(
-          `Dungeon saved, but some floors failed to generate: ${dungeon.generationErrors.join(' | ')}`,
-        )
-        setTimeout(() => navigate(`/dungeons/${dungeon.id}`), 4000)
-      } else {
-        navigate(`/dungeons/${dungeon.id}`)
-      }
+      const { id } = await createDungeon(result.data)
+      // Switch to the progress view — polling effect takes over from here.
+      setGeneratingName(form.name)
+      setGeneratingId(id)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong.')
-    } finally {
       setSubmitting(false)
     }
+    // Note: setSubmitting(false) is intentionally NOT called on success —
+    // the button stays disabled while the progress screen is shown.
+  }
+
+  // ── Progress screen ───────────────────────────────────────────────────────
+  if (generatingId) {
+    const complete = progress?.floorsComplete ?? 0
+    const total    = progress?.floorsTotal    ?? 0
+    const pct      = total > 0 ? Math.round((complete / total) * 100) : null
+
+    const statusText =
+      !progress || total === 0
+        ? 'Resolving dungeon parameters…'
+        : complete >= total
+          ? 'Wrapping up…'
+          : `Generating floor ${complete + 1} of ${total}…`
+
+    return (
+      <main className="container">
+        <h1>{generatingName}</h1>
+        <div className="gen-progress">
+          <p className="gen-progress__status">{statusText}</p>
+          <div className="gen-progress__track">
+            {pct !== null ? (
+              <div className="gen-progress__fill" style={{ width: `${pct}%` }} />
+            ) : (
+              <div className="gen-progress__indeterminate" />
+            )}
+          </div>
+          {pct !== null && (
+            <p className="gen-progress__pct">{pct}%</p>
+          )}
+        </div>
+      </main>
+    )
   }
 
   return (

@@ -150,6 +150,22 @@ export const createDungeonResponse = dungeonSchema.extend({
 
 export type CreateDungeonResponse = z.infer<typeof createDungeonResponse>
 
+// ─── Phase 6: generation progress ────────────────────────────────────────────
+
+/** Returned immediately by POST /api/dungeons (generation runs in background). */
+export const createDungeonStartResponse = z.object({ id: z.string() })
+export type CreateDungeonStartResponse = z.infer<typeof createDungeonStartResponse>
+
+/** Polled by the client while generation is in progress. */
+export const dungeonProgressSchema = z.object({
+  floorsComplete: z.number().int(),
+  /** 0 = resolving random fields; positive = total floors to generate. */
+  floorsTotal:    z.number().int(),
+  done:   z.boolean(),
+  errors: z.array(z.string()),
+})
+export type DungeonProgress = z.infer<typeof dungeonProgressSchema>
+
 // ─── Phase 6: room editing ────────────────────────────────────────────────────
 
 export const updateRoomInput = z.object({

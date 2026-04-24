@@ -1,4 +1,4 @@
-import type { CampaignListItem, CreateDungeonInput, CreateDungeonResponse, DungeonDetail, Room, UpdateRoomInput } from '@dungeon/shared'
+import type { CampaignListItem, CreateDungeonInput, CreateDungeonStartResponse, DungeonProgress, DungeonDetail, Room, UpdateRoomInput } from '@dungeon/shared'
 
 const BASE = '/api'
 
@@ -23,12 +23,16 @@ export function getCampaigns(): Promise<CampaignListItem[]> {
   return apiFetch('/campaigns')
 }
 
-export function createDungeon(body: CreateDungeonInput): Promise<CreateDungeonResponse> {
+export function createDungeon(body: CreateDungeonInput): Promise<CreateDungeonStartResponse> {
   return apiFetch('/dungeons', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+export function getDungeonProgress(id: string): Promise<DungeonProgress> {
+  return apiFetch(`/dungeons/${id}/progress`)
 }
 
 export function getDungeon(id: string): Promise<DungeonDetail> {
