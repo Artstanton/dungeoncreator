@@ -31,6 +31,7 @@ model Dungeon {
   crMax     Int
   seed      String
   direction String // 'up' | 'down' | 'both'
+  density   Int    @default(3) // 1=sprawling … 5=compact
 
   // JSON-serialised string[]. Kept as String because SQLite has no native JSON
   // type and we want explicit control over parse/stringify at the route layer.

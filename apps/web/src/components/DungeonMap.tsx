@@ -16,7 +16,7 @@ interface Props {
 
 // ─── Wall edge computation ────────────────────────────────────────────────────
 
-function wallPaths(occupied: Set<string>, allTiles: Array<[number, number]>): string {
+function wallPaths(occupied: Set<string>, allTiles: Array<[number, number]>, roomTiles: Set<string>): string {
   const segs: string[] = []
   const dirs: Array<[number, number, 'h' | 'v', number, number]> = [
     [0, -1, 'h', 0, 0],
@@ -25,8 +25,14 @@ function wallPaths(occupied: Set<string>, allTiles: Array<[number, number]>): st
     [ 1, 0, 'v', 1, 0],
   ]
   for (const [tx, ty] of allTiles) {
+    const isRoom = roomTiles.has(`${tx},${ty}`)
     for (const [dx, dy, axis, ox, oy] of dirs) {
-      if (!occupied.has(`${tx + dx},${ty + dy}`)) {
+      const nx = tx + dx, ny = ty + dy
+      const neighborOccupied = occupied.has(`${nx},${ny}`)
+      const neighborIsRoom   = roomTiles.has(`${nx},${ny}`)
+      // Draw a wall whenever the neighbour is empty OR whenever we cross a
+      // room↔corridor boundary (so corridors running beside rooms get a wall).
+      if (!neighborOccupied || isRoom !== neighborIsRoom) {
         const px = (tx + ox) * TILE
         const py = (ty + oy) * TILE
         segs.push(axis === 'h'
@@ -67,9 +73,11 @@ function roomGridLines(room: MapRoom): ReactNode {
 
 // ─── Door detection ───────────────────────────────────────────────────────────
 //
-// For each contiguous run of corridor tiles that share the same wall with a
-// room, place exactly ONE door at the midpoint of the run.  This prevents
-// multiple doors appearing where a hallway runs alongside a room wall.
+// A door belongs only at the exact point where a corridor enters or exits its
+// connected room.  We find those points by scanning each corridor's tile list
+// for the room→corridor and corridor→room transitions, then place one door at
+// each transition.  This avoids spurious doors where a corridor runs alongside
+// a room it isn't actually connected to.
 
 interface DoorMarker {
   px: number   // pixel x of door centre (on the wall edge)
@@ -77,67 +85,51 @@ interface DoorMarker {
   axis: 'v' | 'h'
 }
 
-type Adj = { tx: number; ty: number; dx: number; dy: number }
+function placeDoor(
+  tx: number, ty: number,   // corridor tile just outside the room
+  dx: number, dy: number,   // direction from corridor tile toward room tile
+  doors: DoorMarker[],
+  placed: Set<string>,
+): void {
+  const axis: 'v' | 'h' = dx !== 0 ? 'v' : 'h'
+  const px = dx !== 0 ? (dx === 1 ? tx + 1 : tx) * TILE : tx * TILE + TILE / 2
+  const py = dy !== 0 ? (dy === 1 ? ty + 1 : ty) * TILE : ty * TILE + TILE / 2
+  const key = `${px},${py}`
+  if (placed.has(key)) return
+  placed.add(key)
+  doors.push({ px, py, axis })
+}
 
 function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): DoorMarker[] {
-  // Collect every unique (corridor tile, direction-to-room) pair.
-  const adjMap = new Map<string, Adj>()
+  const doors: DoorMarker[] = []
+  const placed = new Set<string>()
 
   for (const corridor of corridors) {
-    for (const [tx, ty] of corridor.tiles) {
-      if (roomTiles.has(`${tx},${ty}`)) continue
-      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]] as [number,number][]) {
-        if (!roomTiles.has(`${tx + dx},${ty + dy}`)) continue
-        const key = `${tx},${ty},${dx},${dy}`
-        if (!adjMap.has(key)) adjMap.set(key, { tx, ty, dx, dy })
-      }
-    }
-  }
+    const tiles = corridor.tiles
 
-  // BFS-group adjacencies that are contiguous along the same wall.
-  // "Contiguous" means: same (dx,dy) direction and adjacent in the perpendicular axis.
-  const processed = new Set<string>()
-  const doors: DoorMarker[] = []
+    // Find the first non-room tile (corridor exits fromRoom here).
+    let s = 0
+    while (s < tiles.length && roomTiles.has(`${tiles[s]![0]},${tiles[s]![1]}`)) s++
 
-  for (const [startKey, startAdj] of adjMap) {
-    if (processed.has(startKey)) continue
+    // Find the last non-room tile (corridor enters toRoom here).
+    let e = tiles.length - 1
+    while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
 
-    const group: Adj[] = []
-    const queue: Adj[] = [startAdj]
-    processed.add(startKey)
+    if (s >= tiles.length || e < 0) continue
 
-    while (queue.length > 0) {
-      const cur = queue.shift()!
-      group.push(cur)
-      // Walk along the wall (perpendicular to the door axis)
-      const perps: [number, number][] = cur.dx !== 0 ? [[0,1],[0,-1]] : [[1,0],[-1,0]]
-      for (const [px, py] of perps) {
-        const nKey = `${cur.tx + px},${cur.ty + py},${cur.dx},${cur.dy}`
-        if (!processed.has(nKey) && adjMap.has(nKey)) {
-          processed.add(nKey)
-          queue.push(adjMap.get(nKey)!)
-        }
-      }
+    // Door at the fromRoom exit: corridor tile s, room tile s-1.
+    if (s > 0) {
+      const [tx, ty] = tiles[s]!
+      const [rx, ry] = tiles[s - 1]!
+      placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     }
 
-    // Sort along the wall axis; pick the midpoint tile for the door.
-    const { dx, dy } = startAdj
-    if (dx !== 0) {
-      group.sort((a, b) => a.ty - b.ty)
-    } else {
-      group.sort((a, b) => a.tx - b.tx)
+    // Door at the toRoom entry: corridor tile e, room tile e+1.
+    if (e < tiles.length - 1 && e !== s) {
+      const [tx, ty] = tiles[e]!
+      const [rx, ry] = tiles[e + 1]!
+      placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     }
-    const mid = group[Math.floor(group.length / 2)]!
-
-    const axis: 'v' | 'h' = mid.dx !== 0 ? 'v' : 'h'
-    const px = mid.dx !== 0
-      ? (mid.dx === 1 ? mid.tx + 1 : mid.tx) * TILE
-      : mid.tx * TILE + TILE / 2
-    const py = mid.dy !== 0
-      ? (mid.dy === 1 ? mid.ty + 1 : mid.ty) * TILE
-      : mid.ty * TILE + TILE / 2
-
-    doors.push({ px, py, axis })
   }
 
   return doors
@@ -247,7 +239,7 @@ export default function DungeonMap({ mapData, selectedRoomId, onRoomClick }: Pro
     }
   }
 
-  const walls = wallPaths(occupied, allTiles)
+  const walls = wallPaths(occupied, allTiles, roomTiles)
   const doors = computeDoors(corridors, roomTiles)
 
   const svgW = width * TILE

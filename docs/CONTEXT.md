@@ -147,17 +147,25 @@ End-to-end flow:
 ```
 form submit → POST /api/dungeons
   → create dungeon record in SQLite
-  → resolve Random fields via Grok (one call if any randomize flags set)
-  → update dungeon record with resolved values
-  → for each floor:
-      → call Grok: "generate N–M rooms for this level"
-      → parse + validate response (retry up to 3× with backoff)
-      → call generateMap(seed, roomCount, ...) → MapData
-      → save level + rooms in one DB transaction
-      → pass level summary to next floor for narrative coherence
-  → re-fetch dungeon with resolved values
-  → return dungeon + generationErrors[]
-  → web app navigates to /dungeons/:id
+  → initProgress(dungeonId)            -- client can start polling immediately
+  → check rate limit (5/min); if hit → finishProgress with error, return { id }
+  → fire void IIFE (background, not awaited):
+      → resolve Random fields via Grok (one call if any randomize flags set)
+      → onProgress(0, floorCount)       -- floorsTotal now known
+      → for each floor:
+          → call Grok: "generate N–M rooms for this level"
+          → parse + validate response (retry up to 3× with backoff)
+          → call generateMap(seed, roomCount, ...) → MapData
+          → save level + rooms in one DB transaction
+          → pass level summary to next floor for narrative coherence
+          → onProgress(i + 1, floorCount)
+      → finishProgress(dungeonId, errors)
+  → return { id } with HTTP 202 immediately
+
+client polls GET /api/dungeons/:id/progress (1 s interval)
+  → { floorsComplete, floorsTotal, done, errors[] }
+  → floorsTotal === 0 means "resolving random fields" → show indeterminate bar
+  → done === true → navigate to /dungeons/:id
 ```
 
 ---
@@ -215,15 +223,16 @@ GET  /api/campaigns
 POST /api/campaigns
 
 GET  /api/dungeons
-GET  /api/dungeons/:id      -- includes levels[].rooms[] and levels[].mapData
-POST /api/dungeons          -- creates + generates dungeon
+GET  /api/dungeons/:id           -- includes levels[].rooms[] and levels[].mapData
+POST /api/dungeons               -- creates dungeon record, fires generation in background, returns { id } (202)
+GET  /api/dungeons/:id/progress  -- { floorsComplete, floorsTotal, done, errors[] }
 
-PATCH /api/rooms/:id        -- partial update of room content fields
+PATCH /api/rooms/:id             -- partial update of room content fields
 ```
 
 ---
 
-## Repo layout (as of Phase 5)
+## Repo layout (as of Phase 5 + mid-phase additions)
 
 ```
 E:\dev\Dungeon Creator\
@@ -237,22 +246,25 @@ E:\dev\Dungeon Creator\
 │   │   └── src/
 │   │       ├── lib/
 │   │       │   ├── grok.ts       lazy OpenAI client (getGrok / getModel)
-│   │       │   ├── generate.ts   room generation orchestrator
+│   │       │   ├── generate.ts   room generation orchestrator (calls onProgress callback)
 │   │       │   ├── map.ts        algorithmic map generator
+│   │       │   ├── progress.ts   in-memory progress store (initProgress / updateProgress / finishProgress / getProgress)
 │   │       │   └── prisma.ts     singleton Prisma client
 │   │       ├── routes/
 │   │       │   ├── campaigns.ts
-│   │       │   └── dungeons.ts   includes PATCH /api/rooms/:id
+│   │       │   └── dungeons.ts   POST returns 202 + { id }; GET progress; PATCH /api/rooms/:id
 │   │       └── index.ts
 │   └── web/
 │       └── src/
 │           ├── api/
-│           │   └── client.ts
+│           │   └── client.ts     createDungeon → { id }; getDungeonProgress; getDungeon; updateRoom
 │           ├── components/
-│           │   └── DungeonMap.tsx   SVG map renderer
+│           │   └── DungeonMap.tsx   interactive SVG map renderer (React)
+│           ├── lib/
+│           │   └── mapSvg.ts     pure string SVG builder (no React) — used by export
 │           ├── pages/
-│           │   ├── CreateDungeonPage.tsx
-│           │   └── DungeonDetailPage.tsx
+│           │   ├── CreateDungeonPage.tsx   form + progress polling UI
+│           │   └── DungeonDetailPage.tsx   map + room panel + edit mode + export
 │           ├── App.tsx
 │           ├── main.tsx
 │           └── index.css
@@ -285,9 +297,9 @@ GitHub: https://github.com/Artstanton/dungeoncreator
 ## How to resume
 
 1. `cd /e/dev/Dungeon\ Creator` (Git Bash) — or `cd "E:\dev\Dungeon Creator"` (PowerShell).
-2. Read phase docs `01` through `05` to get up to speed.
+2. Read this file. Optionally skim phase docs `01` through `05`.
 3. Run `pnpm install && pnpm dev`. Confirm the API terminal logs `[grok] model=grok-4-1-fast-reasoning  key=xai-...` with a non-empty key prefix.
-4. Phases 1–5 are complete and working. Next is **Phase 6 — Library view**.
+4. Phases 1–5 + all mid-phase additions are complete and working. Next is **Phase 6 — Library view**.
 
 ---
 

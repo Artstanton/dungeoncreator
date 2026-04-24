@@ -276,7 +276,9 @@ async function generateLevel(params: GenerateLevelParams): Promise<GeneratedLeve
       model: getModel(),
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
-      max_tokens: 2000,
+      // ~150 tokens per room is a comfortable budget for name + description +
+      // encounters + treasure + secrets + hooks.  Floor it at 1500 and cap at 6000.
+      max_tokens: Math.min(6000, Math.max(1500, params.roomsMax * 150)),
       temperature: 0.85,
     })
 
@@ -343,6 +345,7 @@ export async function generateDungeon(
     crMax: number
     seed: string
     direction: string
+    density: number
     floorCount: number
     roomsMin: number
     roomsMax: number
@@ -417,6 +420,7 @@ export async function generateDungeon(
         seed: `${params.seed ?? 'dungeon'}-level-${i}`,
         roomCount: levelData.rooms.length,
         direction: params.direction,
+        density: params.density,
         isEntry: i === 0,
         hasLevelAbove: params.direction === 'down'
           ? i > 0

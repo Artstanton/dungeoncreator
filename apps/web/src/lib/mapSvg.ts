@@ -13,7 +13,7 @@ const WALL = 3
 
 // ─── Wall edge computation ────────────────────────────────────────────────────
 
-function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>): string {
+function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>, roomTiles: Set<string>): string {
   const segs: string[] = []
   const dirs: Array<[number, number, 'h' | 'v', number, number]> = [
     [0, -1, 'h', 0, 0],
@@ -22,8 +22,14 @@ function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>): st
     [ 1, 0, 'v', 1, 0],
   ]
   for (const [tx, ty] of allTiles) {
+    const isRoom = roomTiles.has(`${tx},${ty}`)
     for (const [dx, dy, axis, ox, oy] of dirs) {
-      if (!occupied.has(`${tx + dx},${ty + dy}`)) {
+      const nx = tx + dx, ny = ty + dy
+      const neighborOccupied = occupied.has(`${nx},${ny}`)
+      const neighborIsRoom   = roomTiles.has(`${nx},${ny}`)
+      // Draw a wall whenever the neighbour is empty OR whenever we cross a
+      // room↔corridor boundary (so corridors running beside rooms get a wall).
+      if (!neighborOccupied || isRoom !== neighborIsRoom) {
         const px = (tx + ox) * TILE
         const py = (ty + oy) * TILE
         segs.push(axis === 'h'
@@ -35,53 +41,62 @@ function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>): st
   return segs.join(' ')
 }
 
-// ─── Door detection (same BFS-group logic as DungeonMap.tsx) ──────────────────
+// ─── Door detection (mirrors DungeonMap.tsx endpoint-transition approach) ────────
+//
+// Doors are placed only where a corridor actually enters or exits its connected
+// room — at the first non-room tile from each end of the corridor's tile list.
+// This prevents spurious doors where a corridor runs alongside a room it isn't
+// connected to.
 
 interface Door { px: number; py: number; axis: 'v' | 'h' }
-type Adj = { tx: number; ty: number; dx: number; dy: number }
+
+function placeDoor(
+  tx: number, ty: number,
+  dx: number, dy: number,
+  doors: Door[],
+  placed: Set<string>,
+): void {
+  const axis: 'v' | 'h' = dx !== 0 ? 'v' : 'h'
+  const px = dx !== 0 ? (dx === 1 ? tx + 1 : tx) * TILE : tx * TILE + TILE / 2
+  const py = dy !== 0 ? (dy === 1 ? ty + 1 : ty) * TILE : ty * TILE + TILE / 2
+  const key = `${px},${py}`
+  if (placed.has(key)) return
+  placed.add(key)
+  doors.push({ px, py, axis })
+}
 
 function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): Door[] {
-  const adjMap = new Map<string, Adj>()
-  for (const corridor of corridors) {
-    for (const [tx, ty] of corridor.tiles) {
-      if (roomTiles.has(`${tx},${ty}`)) continue
-      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]] as [number,number][]) {
-        if (!roomTiles.has(`${tx + dx},${ty + dy}`)) continue
-        const key = `${tx},${ty},${dx},${dy}`
-        if (!adjMap.has(key)) adjMap.set(key, { tx, ty, dx, dy })
-      }
-    }
-  }
-
-  const processed = new Set<string>()
   const doors: Door[] = []
+  const placed = new Set<string>()
 
-  for (const [startKey, startAdj] of adjMap) {
-    if (processed.has(startKey)) continue
-    const group: Adj[] = []
-    const queue: Adj[] = [startAdj]
-    processed.add(startKey)
-    while (queue.length > 0) {
-      const cur = queue.shift()!
-      group.push(cur)
-      const perps: [number, number][] = cur.dx !== 0 ? [[0,1],[0,-1]] : [[1,0],[-1,0]]
-      for (const [px, py] of perps) {
-        const nKey = `${cur.tx + px},${cur.ty + py},${cur.dx},${cur.dy}`
-        if (!processed.has(nKey) && adjMap.has(nKey)) {
-          processed.add(nKey)
-          queue.push(adjMap.get(nKey)!)
-        }
-      }
+  for (const corridor of corridors) {
+    const tiles = corridor.tiles
+
+    // Find the first non-room tile (corridor exits fromRoom here).
+    let s = 0
+    while (s < tiles.length && roomTiles.has(`${tiles[s]![0]},${tiles[s]![1]}`)) s++
+
+    // Find the last non-room tile (corridor enters toRoom here).
+    let e = tiles.length - 1
+    while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
+
+    if (s >= tiles.length || e < 0) continue
+
+    // Door at the fromRoom exit: corridor tile s, room tile s-1.
+    if (s > 0) {
+      const [tx, ty] = tiles[s]!
+      const [rx, ry] = tiles[s - 1]!
+      placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     }
-    const { dx, dy } = startAdj
-    if (dx !== 0) group.sort((a, b) => a.ty - b.ty)
-    else          group.sort((a, b) => a.tx - b.tx)
-    const mid = group[Math.floor(group.length / 2)]!
-    const axis: 'v' | 'h' = mid.dx !== 0 ? 'v' : 'h'
-    const px = mid.dx !== 0 ? (mid.dx === 1 ? mid.tx + 1 : mid.tx) * TILE : mid.tx * TILE + TILE / 2
-    const py = mid.dy !== 0 ? (mid.dy === 1 ? mid.ty + 1 : mid.ty) * TILE : mid.ty * TILE + TILE / 2
-    doors.push({ px, py, axis })
+
+    // Door at the toRoom entry: corridor tile e, room tile e+1.
+    if (e < tiles.length - 1 && e !== s) {
+      const [tx, ty] = tiles[e]!
+      const [rx, ry] = tiles[e + 1]!
+      placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
+    }
   }
+
   return doors
 }
 
@@ -139,7 +154,7 @@ export function buildMapSvg(mapData: MapData): string {
   }).join('')
 
   // Walls
-  const wallD = wallPathD(occupied, allTiles)
+  const wallD = wallPathD(occupied, allTiles, roomTiles)
   const wallEl = `<path d="${wallD}" stroke="black" stroke-width="${WALL}" stroke-linecap="square" fill="none"/>`
 
   // Doors

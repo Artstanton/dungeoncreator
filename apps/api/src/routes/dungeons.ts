@@ -118,6 +118,7 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       floorCount,
       roomsMin,
       roomsMax,
+      density,
       randomize,
       ...rest
     } = body.data
@@ -143,6 +144,7 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
         ...rest,
         campaignId: resolvedCampaignId,
         seed: seed ?? randomBytes(8).toString('hex'),
+        density,
         specificTreasures: JSON.stringify(specificTreasures),
         specificEncounters: JSON.stringify(specificEncounters),
       },
@@ -168,6 +170,7 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       crMax: dungeon.crMax,
       seed: dungeon.seed,
       direction: dungeon.direction,
+      density: dungeon.density,
       floorCount,
       roomsMin,
       roomsMax,

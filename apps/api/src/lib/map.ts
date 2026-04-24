@@ -30,8 +30,19 @@ import type { MapData, MapRoom, Corridor, StairMarker } from '@dungeon/shared'
 /** Pixel size of one tile in the SVG viewport (used only as a rendering hint). */
 export const TILE_PX = 22
 
-/** Minimum gap in tiles between adjacent room edges (creates corridor space). */
-const MIN_GAP = 2
+/**
+ * Gap range (min tiles, max tiles) between room edges per density level.
+ * density 1 = sprawling cave (long corridors)
+ * density 3 = normal (current default)
+ * density 5 = compact fortress (rooms nearly touching)
+ */
+const GAP_BY_DENSITY: Record<number, [number, number]> = {
+  1: [8, 14],
+  2: [4, 8],
+  3: [2, 4],
+  4: [1, 2],
+  5: [1, 1],
+}
 
 /** Canvas size allocated for placement (rooms stay within this). */
 const CANVAS = 80
@@ -212,11 +223,21 @@ export interface GenerateMapParams {
   hasLevelAbove: boolean
   /** Is there a level below this one? */
   hasLevelBelow: boolean
+  /**
+   * Controls corridor length between rooms.
+   * 1 = sprawling (8–14 tile gaps), 3 = normal (2–4), 5 = compact (1 tile).
+   * Defaults to 3 if omitted.
+   */
+  density?: number
 }
 
 export function generateMap(params: GenerateMapParams): MapData {
   const rng = seedrandom(params.seed)
   const grid = new Grid(CANVAS, CANVAS)
+
+  // Resolve gap range from density (clamp to 1–5, default 3).
+  const densityKey = Math.min(5, Math.max(1, Math.round(params.density ?? 3))) as 1|2|3|4|5
+  const [gapMin, gapMax] = GAP_BY_DENSITY[densityKey]!
 
   const placedRooms: MapRoom[] = []
   const corridors: Corridor[] = []
@@ -247,7 +268,7 @@ export function generateMap(params: GenerateMapParams): MapData {
         let x: number
         let y: number
 
-        const gap = randInt(rng, MIN_GAP, MIN_GAP + 2)
+        const gap = randInt(rng, gapMin, gapMax)
 
         switch (dir) {
           case 0: // right

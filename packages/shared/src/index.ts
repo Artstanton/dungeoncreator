@@ -52,6 +52,8 @@ export const dungeonSchema = z.object({
   crMax: z.number().int().min(0).max(30),
   seed: z.string(),
   direction: directionSchema,
+  /** 1 = sprawling (long corridors), 3 = normal, 5 = compact (tight rooms) */
+  density: z.number().int().min(1).max(5).default(3),
   specificTreasures: z.array(z.string()),
   specificEncounters: z.array(z.string()),
   notes: z.string().nullable(),
@@ -88,15 +90,17 @@ export const createDungeonInput = z.object({
   crMax: z.number().int().min(0).max(30).default(5),
   seed: z.string().optional(), // generated server-side if omitted
   direction: directionSchema.default('down'),
+  /** 1 = sprawling, 2 = open, 3 = normal, 4 = dense, 5 = compact */
+  density: z.number().int().min(1).max(5).default(3),
   specificTreasures: z.array(z.string()).default([]),
   specificEncounters: z.array(z.string()).default([]),
   notes: z.string().optional(),
   /** How many floors to generate. AI decides if randomize.floorCount is true. */
   floorCount: z.number().int().min(1).max(10).default(1),
   /** Min rooms per floor. AI decides if randomize.roomsPerFloor is true. */
-  roomsMin: z.number().int().min(1).max(20).default(4),
+  roomsMin: z.number().int().min(1).max(30).default(4),
   /** Max rooms per floor. AI decides if randomize.roomsPerFloor is true. */
-  roomsMax: z.number().int().min(1).max(20).default(10),
+  roomsMax: z.number().int().min(1).max(30).default(10),
   /** Which fields the AI should decide. Consumed by the generation layer (Phase 4). */
   randomize: randomizeFlagsSchema.optional(),
 })

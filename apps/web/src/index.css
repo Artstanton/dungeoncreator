@@ -808,6 +808,43 @@ code {
   font-weight: 600;
 }
 
+.gen-progress__errors {
+  margin-top: 1rem;
+  text-align: left;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.gen-progress__error {
+  font-size: 0.85rem;
+  color: #a83232;
+  background: #f9eaea;
+  border: 1px solid #e0b0b0;
+  border-radius: 5px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.4rem 0 0;
+}
+
+.gen-progress__continue {
+  margin-top: 1rem;
+  padding: 0.45rem 1rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: #f0ece0;
+  border: 1px solid #c0b8a8;
+  border-radius: 5px;
+  color: #5e4420;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.gen-progress__continue:hover {
+  border-color: #7a5c2f;
+  background: #e8e0cc;
+}
+
 /* ── Page states ─────────────────────────────────────────────────────────────── */
 
 .page-loading {

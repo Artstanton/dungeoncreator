@@ -12,6 +12,7 @@ interface FormValues {
   crMin: number
   crMax: number
   direction: Direction
+  density: number
   floorCount: number
   roomsMin: number
   roomsMax: number
@@ -37,6 +38,7 @@ const DEFAULTS: FormValues = {
   crMin: 1,
   crMax: 5,
   direction: 'down',
+  density: 3,
   floorCount: 1,
   roomsMin: 4,
   roomsMax: 10,
@@ -90,7 +92,12 @@ export function CreateDungeonPage() {
           setProgress(p)
           if (p.done) {
             alive = false
-            navigate(`/dungeons/${generatingId}`)
+            if (p.errors.length === 0) {
+              // Clean finish — go straight to the dungeon.
+              navigate(`/dungeons/${generatingId}`)
+            }
+            // If there were errors, stay on the progress screen so the user
+            // can read them. The "View dungeon" button lets them continue.
             return
           }
         } catch { /* ignore transient network errors */ }
@@ -162,6 +169,7 @@ export function CreateDungeonPage() {
       ...(random.theme || !form.theme.trim() ? {} : { theme: form.theme.trim() }),
       ...(random.cr ? {} : { crMin: form.crMin, crMax: form.crMax }),
       direction: form.direction,
+      density: form.density,
       ...(random.floorCount ? {} : { floorCount: form.floorCount }),
       ...(random.roomsPerFloor ? {} : { roomsMin: form.roomsMin, roomsMax: form.roomsMax }),
       specificEncounters: random.specificEncounters ? [] : form.specificEncounters,
@@ -215,6 +223,7 @@ export function CreateDungeonPage() {
     const complete = progress?.floorsComplete ?? 0
     const total    = progress?.floorsTotal    ?? 0
     const pct      = total > 0 ? Math.round((complete / total) * 100) : null
+    const genErrors = progress?.errors ?? []
 
     const statusText =
       !progress || total === 0
@@ -237,6 +246,19 @@ export function CreateDungeonPage() {
           </div>
           {pct !== null && (
             <p className="gen-progress__pct">{pct}%</p>
+          )}
+          {genErrors.length > 0 && (
+            <div className="gen-progress__errors">
+              {genErrors.map((e, i) => (
+                <p key={i} className="gen-progress__error">⚠ {e}</p>
+              ))}
+              <button
+                className="gen-progress__continue"
+                onClick={() => navigate(`/dungeons/${generatingId}`)}
+              >
+                View dungeon anyway →
+              </button>
+            </div>
           )}
         </div>
       </main>
@@ -368,6 +390,23 @@ export function CreateDungeonPage() {
           </select>
         </div>
 
+        {/* ── Map density ──────────────────────────────────────────────────── */}
+        <div className="form-group">
+          <label htmlFor="density">Map density</label>
+          <select
+            id="density"
+            value={form.density}
+            onChange={(e) => setField('density', Number(e.target.value))}
+          >
+            <option value={1}>Sprawling — long corridors, cave-like</option>
+            <option value={2}>Open — relaxed spacing</option>
+            <option value={3}>Normal — balanced</option>
+            <option value={4}>Dense — tight corridors</option>
+            <option value={5}>Compact — rooms nearly touching</option>
+          </select>
+          <p className="hint">Controls how tightly rooms are packed on the map.</p>
+        </div>
+
         {/* ── Floor count ──────────────────────────────────────────────────── */}
         <div className="random-row">
           <div className="form-group">
@@ -378,9 +417,10 @@ export function CreateDungeonPage() {
               min={1}
               max={10}
               value={form.floorCount}
-              onChange={(e) => setField('floorCount', Number(e.target.value))}
+              onChange={(e) => setField('floorCount', Math.max(1, Number(e.target.value) || 1))}
               disabled={random.floorCount}
             />
+            {errors['floorCount'] && <span className="field-error">{errors['floorCount']}</span>}
           </div>
           <button
             type="button"
@@ -403,9 +443,9 @@ export function CreateDungeonPage() {
                   id="roomsMin"
                   type="number"
                   min={1}
-                  max={20}
+                  max={30}
                   value={form.roomsMin}
-                  onChange={(e) => setField('roomsMin', Number(e.target.value))}
+                  onChange={(e) => setField('roomsMin', Math.max(1, Number(e.target.value) || 1))}
                   disabled={random.roomsPerFloor}
                 />
               </div>
@@ -416,13 +456,15 @@ export function CreateDungeonPage() {
                   id="roomsMax"
                   type="number"
                   min={1}
-                  max={20}
+                  max={30}
                   value={form.roomsMax}
-                  onChange={(e) => setField('roomsMax', Number(e.target.value))}
+                  onChange={(e) => setField('roomsMax', Math.max(1, Number(e.target.value) || 1))}
                   disabled={random.roomsPerFloor}
                 />
               </div>
             </div>
+            {errors['roomsMin'] && <span className="field-error">{errors['roomsMin']}</span>}
+            {errors['roomsMax'] && <span className="field-error">{errors['roomsMax']}</span>}
             <p className="hint">Grok picks a count in this range per floor based on its character.</p>
           </div>
           <button
@@ -588,9 +630,9 @@ export function CreateDungeonPage() {
         </details>
 
         {/* ── Errors & submit ──────────────────────────────────────────────── */}
-        {errors['general'] && (
-          <div className="submit-error">{errors['general']}</div>
-        )}
+        {Object.entries(errors)
+          .filter(([k]) => !['name', 'crMin', 'floorCount', 'roomsMin', 'roomsMax'].includes(k))
+          .map(([k, v]) => <div key={k} className="submit-error">{v}</div>)}
         {submitError && <div className="submit-error">{submitError}</div>}
 
         <button type="submit" className="submit-btn" disabled={submitting}>
