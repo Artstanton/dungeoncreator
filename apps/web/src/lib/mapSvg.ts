@@ -65,12 +65,15 @@ function placeDoor(
   doors.push({ px, py, axis })
 }
 
+const DOOR_DIRS: Array<[number, number]> = [[1,0],[-1,0],[0,1],[0,-1]]
+
 function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): Door[] {
   const doors: Door[] = []
   const placed = new Set<string>()
 
   for (const corridor of corridors) {
     const tiles = corridor.tiles
+    if (tiles.length === 0) continue
 
     // Find the first non-room tile (corridor exits fromRoom here).
     let s = 0
@@ -80,20 +83,52 @@ function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): 
     let e = tiles.length - 1
     while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
 
-    if (s >= tiles.length || e < 0) continue
+    if (s > e) continue
 
-    // Door at the fromRoom exit: corridor tile s, room tile s-1.
+    // Door at the fromRoom exit.
     if (s > 0) {
       const [tx, ty] = tiles[s]!
       const [rx, ry] = tiles[s - 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
+    } else if (tiles.length >= 2) {
+      // No room tiles at start — room is opposite to direction of travel.
+      const [tx, ty] = tiles[0]!
+      const [nx, ny] = tiles[1]!
+      const dx = tx - nx
+      const dy = ty - ny
+      if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
+        placeDoor(tx, ty, dx, dy, doors, placed)
+      } else {
+        for (const [fdx, fdy] of DOOR_DIRS) {
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
+            placeDoor(tx, ty, fdx, fdy, doors, placed)
+            break
+          }
+        }
+      }
     }
 
-    // Door at the toRoom entry: corridor tile e, room tile e+1.
-    if (e < tiles.length - 1 && e !== s) {
+    // Door at the toRoom entry.
+    if (e < tiles.length - 1) {
       const [tx, ty] = tiles[e]!
       const [rx, ry] = tiles[e + 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
+    } else if (tiles.length >= 2) {
+      // No room tiles at end — room is ahead in direction of travel.
+      const [tx, ty] = tiles[e]!
+      const [px, py] = tiles[e - 1]!
+      const dx = tx - px
+      const dy = ty - py
+      if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
+        placeDoor(tx, ty, dx, dy, doors, placed)
+      } else {
+        for (const [fdx, fdy] of DOOR_DIRS) {
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
+            placeDoor(tx, ty, fdx, fdy, doors, placed)
+            break
+          }
+        }
+      }
     }
   }
 

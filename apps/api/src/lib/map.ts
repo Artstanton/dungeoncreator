@@ -373,29 +373,36 @@ export function generateMap(params: GenerateMapParams): MapData {
 
   // ── Stair markers ────────────────────────────────────────────────────────────
 
+  /**
+   * Place a stair in a random quadrant of the room so it doesn't overlap the
+   * room-number label that sits at the tile centre.
+   */
+  function stairTile(room: MapRoom): { x: number; y: number } {
+    const cx = Math.floor(room.x + room.w / 2)
+    const cy = Math.floor(room.y + room.h / 2)
+    // Offset toward a randomly-chosen quadrant (at least 1 tile, at most w/3 or h/3)
+    const qx  = rng() < 0.5 ? -1 : 1
+    const qy  = rng() < 0.5 ? -1 : 1
+    const offX = Math.max(1, Math.floor(room.w / 3))
+    const offY = Math.max(1, Math.floor(room.h / 3))
+    return { x: cx + qx * offX, y: cy + qy * offY }
+  }
+
   const stairs: StairMarker[] = []
 
   if (params.hasLevelAbove) {
-    // Place "up" stairs in the first room's centre
     const r = placedRooms[0]
     if (r) {
-      stairs.push({
-        x: Math.floor(r.x + r.w / 2),
-        y: Math.floor(r.y + r.h / 2),
-        direction: 'up',
-      })
+      const { x, y } = stairTile(r)
+      stairs.push({ x, y, direction: 'up' })
     }
   }
 
   if (params.hasLevelBelow) {
-    // Place "down" stairs in the last room's centre
     const r = placedRooms[placedRooms.length - 1]
     if (r) {
-      stairs.push({
-        x: Math.floor(r.x + r.w / 2),
-        y: Math.floor(r.y + r.h / 2),
-        direction: 'down',
-      })
+      const { x, y } = stairTile(r)
+      stairs.push({ x, y, direction: 'down' })
     }
   }
 

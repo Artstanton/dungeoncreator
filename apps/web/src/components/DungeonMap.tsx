@@ -100,12 +100,15 @@ function placeDoor(
   doors.push({ px, py, axis })
 }
 
+const DOOR_DIRS: Array<[number, number]> = [[1,0],[-1,0],[0,1],[0,-1]]
+
 function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): DoorMarker[] {
   const doors: DoorMarker[] = []
   const placed = new Set<string>()
 
   for (const corridor of corridors) {
     const tiles = corridor.tiles
+    if (tiles.length === 0) continue
 
     // Find the first non-room tile (corridor exits fromRoom here).
     let s = 0
@@ -115,20 +118,57 @@ function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): 
     let e = tiles.length - 1
     while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
 
-    if (s >= tiles.length || e < 0) continue
+    if (s > e) continue
 
-    // Door at the fromRoom exit: corridor tile s, room tile s-1.
+    // Door at the fromRoom exit.
     if (s > 0) {
+      // Tile list includes room tiles — transition is at s-1 → s.
       const [tx, ty] = tiles[s]!
       const [rx, ry] = tiles[s - 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
+    } else if (tiles.length >= 2) {
+      // No room tiles at start. The room must be directly behind tile[0],
+      // i.e. opposite to the direction of travel (tile[0] → tile[1]).
+      const [tx, ty] = tiles[0]!
+      const [nx, ny] = tiles[1]!
+      const dx = tx - nx   // reverse travel direction
+      const dy = ty - ny
+      if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
+        placeDoor(tx, ty, dx, dy, doors, placed)
+      } else {
+        // Corner geometry — scan all 4 neighbours as fallback.
+        for (const [fdx, fdy] of DOOR_DIRS) {
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
+            placeDoor(tx, ty, fdx, fdy, doors, placed)
+            break
+          }
+        }
+      }
     }
 
-    // Door at the toRoom entry: corridor tile e, room tile e+1.
-    if (e < tiles.length - 1 && e !== s) {
+    // Door at the toRoom entry.
+    if (e < tiles.length - 1) {
+      // Tile list includes room tiles — transition is at e → e+1.
       const [tx, ty] = tiles[e]!
       const [rx, ry] = tiles[e + 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
+    } else if (tiles.length >= 2) {
+      // No room tiles at end. The room must be directly ahead of tile[e],
+      // i.e. in the direction of travel (tile[e-1] → tile[e]).
+      const [tx, ty] = tiles[e]!
+      const [px, py] = tiles[e - 1]!
+      const dx = tx - px   // forward travel direction
+      const dy = ty - py
+      if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
+        placeDoor(tx, ty, dx, dy, doors, placed)
+      } else {
+        for (const [fdx, fdy] of DOOR_DIRS) {
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
+            placeDoor(tx, ty, fdx, fdy, doors, placed)
+            break
+          }
+        }
+      }
     }
   }
 
