@@ -470,6 +470,60 @@ export interface GenerateBuildingParams {
   roomCount: number
   hasLevelAbove: boolean
   hasLevelBelow: boolean
+  buildingType?: string
+  floorIndex?: number
+}
+
+/**
+ * Returns per-room area weights (length === roomCount).
+ * Room 0 is always the most prominent; weights decay for later rooms.
+ * Ground floor (floorIndex 0) has more dramatic size differences.
+ */
+function getBuildingRoomWeights(buildingType: string, floorIndex: number, roomCount: number): number[] {
+  const w = new Array<number>(roomCount).fill(1)
+  if (roomCount < 2) return w
+
+  if (floorIndex === 0) {
+    switch (buildingType) {
+      case 'tavern':
+      case 'inn':
+        w[0] = 4                                        // common room / tap room
+        if (roomCount >= 2) w[1] = 2                   // kitchen / pantry
+        break
+      case 'castle':
+      case 'keep':
+        w[0] = 5                                        // great hall
+        if (roomCount >= 2) w[1] = 2                   // guard room / antechamber
+        break
+      case 'temple':
+        w[0] = 5                                        // sanctuary / nave
+        if (roomCount >= 2) w[1] = 2                   // vestibule / sacristy
+        break
+      case 'manor':
+        w[0] = 4                                        // great hall
+        if (roomCount >= 2) w[1] = 2                   // dining room
+        break
+      case 'guild':
+        w[0] = 4                                        // main hall / trading floor
+        if (roomCount >= 2) w[1] = 2                   // meeting room
+        break
+      case 'library':
+        w[0] = 5                                        // main reading room / stacks
+        if (roomCount >= 2) w[1] = 2                   // reference hall
+        break
+      case 'warehouse':
+      case 'barracks':
+        w[0] = 4                                        // main storage / bunk hall
+        break
+      default:
+        w[0] = 3
+    }
+  } else {
+    // Upper floors: first room slightly larger (landing / main corridor area)
+    w[0] = 1.5
+  }
+
+  return w
 }
 
 const BUILDING_MARGIN = 1
@@ -477,11 +531,14 @@ const MIN_ROOM_SIZE   = 3
 
 /**
  * Recursively partition a rectangle into exactly `count` rooms using BSP.
- * Fills `rooms` and `doors` arrays in place.
+ * `startId` is the index of the first room that will be added in this call,
+ * allowing `weights` to bias split ratios toward higher-weight rooms.
  */
 function bspPartition(
   x: number, y: number, w: number, h: number,
   count: number,
+  startId: number,
+  weights: number[],
   rng: seedrandom.PRNG,
   rooms: MapRoom[],
   doors: BuildingDoor[],
@@ -497,7 +554,6 @@ function bspPartition(
   const canSplitV = h >= MIN_ROOM_SIZE * 2 + 1
 
   if (!canSplitH && !canSplitV) {
-    // No space to split — force a single room and skip the extras.
     rooms.push({ id: rooms.length, x, y, w, h })
     return
   }
@@ -508,24 +564,30 @@ function bspPartition(
   else if (!canSplitV) splitH = true
   else splitH = w >= h ? rng() < 0.65 : rng() < 0.35
 
-  const leftCount  = Math.floor(count / 2)
+  // Assign more rooms to the side with the higher-weight rooms.
+  // Always put the prominent room (lowest startId) on the left/top.
+  const leftCount  = Math.max(1, Math.floor(count / 2))
   const rightCount = count - leftCount
 
+  // Compute the weight ratio to bias the spatial split.
+  const leftWeight  = weights.slice(startId, startId + leftCount).reduce((s, v) => s + v, 0)
+  const rightWeight = weights.slice(startId + leftCount, startId + count).reduce((s, v) => s + v, 0)
+  const ratio = leftWeight / (leftWeight + rightWeight)
+
   if (splitH) {
-    // Split left | right along a vertical seam at x + splitAt.
-    const minSplit = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
-    const maxSplit = Math.min(w - MIN_ROOM_SIZE, w - rightCount * MIN_ROOM_SIZE)
-    const splitAt  = randInt(rng, minSplit, maxSplit)
+    const minSplit  = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
+    const maxSplit  = Math.min(w - MIN_ROOM_SIZE, w - rightCount * MIN_ROOM_SIZE)
+    const idealSplit = Math.round(w * ratio)
+    const splitAt   = Math.max(minSplit, Math.min(maxSplit, idealSplit))
 
     const leftStart = rooms.length
-    bspPartition(x, y, splitAt, h, leftCount, rng, rooms, doors)
+    bspPartition(x, y, splitAt, h, leftCount, startId, weights, rng, rooms, doors)
     const leftEnd = rooms.length
 
     const rightStart = rooms.length
-    bspPartition(x + splitAt, y, w - splitAt, h, rightCount, rng, rooms, doors)
+    bspPartition(x + splitAt, y, w - splitAt, h, rightCount, startId + leftCount, weights, rng, rooms, doors)
     const rightEnd = rooms.length
 
-    // Connect one room from each partition that touch the seam.
     const seam = x + splitAt
     const leftCandidates  = rooms.slice(leftStart,  leftEnd ).filter(r => r.x + r.w === seam)
     const rightCandidates = rooms.slice(rightStart, rightEnd).filter(r => r.x       === seam)
@@ -533,7 +595,6 @@ function bspPartition(
     const lRoom = pick(rng, leftCandidates.length  ? leftCandidates  : rooms.slice(leftStart,  leftEnd ))
     const rRoom = pick(rng, rightCandidates.length ? rightCandidates : rooms.slice(rightStart, rightEnd))
 
-    // Door Y: middle of the Y overlap between the two rooms, or their averaged centres.
     const overlapY1 = Math.max(lRoom.y, rRoom.y)
     const overlapY2 = Math.min(lRoom.y + lRoom.h, rRoom.y + rRoom.h)
     const doorY = overlapY1 < overlapY2
@@ -542,17 +603,17 @@ function bspPartition(
 
     doors.push({ fromRoom: lRoom.id, toRoom: rRoom.id, wallX: seam, wallY: doorY, axis: 'v' })
   } else {
-    // Split top | bottom along a horizontal seam at y + splitAt.
-    const minSplit = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
-    const maxSplit = Math.min(h - MIN_ROOM_SIZE, h - rightCount * MIN_ROOM_SIZE)
-    const splitAt  = randInt(rng, minSplit, maxSplit)
+    const minSplit   = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
+    const maxSplit   = Math.min(h - MIN_ROOM_SIZE, h - rightCount * MIN_ROOM_SIZE)
+    const idealSplit = Math.round(h * ratio)
+    const splitAt    = Math.max(minSplit, Math.min(maxSplit, idealSplit))
 
     const topStart = rooms.length
-    bspPartition(x, y, w, splitAt, leftCount, rng, rooms, doors)
+    bspPartition(x, y, w, splitAt, leftCount, startId, weights, rng, rooms, doors)
     const topEnd = rooms.length
 
     const bottomStart = rooms.length
-    bspPartition(x, y + splitAt, w, h - splitAt, rightCount, rng, rooms, doors)
+    bspPartition(x, y + splitAt, w, h - splitAt, rightCount, startId + leftCount, weights, rng, rooms, doors)
     const bottomEnd = rooms.length
 
     const seam = y + splitAt
@@ -586,7 +647,8 @@ export function generateBuilding(params: GenerateBuildingParams): MapData {
   const rooms: MapRoom[]    = []
   const doors: BuildingDoor[] = []
 
-  bspPartition(0, 0, bldW, bldH, n, rng, rooms, doors)
+  const weights = getBuildingRoomWeights(params.buildingType ?? '', params.floorIndex ?? 0, n)
+  bspPartition(0, 0, bldW, bldH, n, 0, weights, rng, rooms, doors)
 
   // Shift everything to leave a margin so exterior walls aren't clipped.
   const shiftedRooms = rooms.map(r => ({ ...r, x: r.x + BUILDING_MARGIN, y: r.y + BUILDING_MARGIN }))

@@ -367,9 +367,11 @@ async function generateBuildingLevel(params: GenerateBuildingLevelParams): Promi
     encounterInstruction ? `Encounters: ${encounterInstruction}` : 'Encounters: Leave encounters empty for all rooms.',
     treasureInstruction ? `Treasure: ${treasureInstruction}` : 'Treasure: Leave treasure empty for all rooms.',
     '',
+    'IMPORTANT — room ordering: List rooms from most prominent/largest to smallest. The map generator uses the order to allocate floor space: room 0 receives the most area, room 1 the second most, and so on. Put the signature room first (common room, great hall, sanctuary, main hall) and utility/storage rooms last.',
+    '',
     'Return a JSON object with:',
     '- levelName: a short descriptive name for this floor (e.g. "Ground Floor", "The Great Hall", "Upper Chambers")',
-    `- rooms: array of ${params.roomsMin}–${params.roomsMax} objects, each with:`,
+    `- rooms: array of ${params.roomsMin}–${params.roomsMax} objects, ordered from most prominent to smallest, each with:`,
     '  - name: short room name (2–4 words)',
     '  - description: 2–3 sentences read aloud when players enter (second-person present tense)',
     '  - encounters: string[] (can be empty)',
@@ -558,6 +560,8 @@ export async function generateDungeon(
             roomCount: levelData.rooms.length,
             hasLevelAbove: hasAbove,
             hasLevelBelow: hasBelow,
+            buildingType: params.buildingType ?? undefined,
+            floorIndex: i,
           })
         : generateMap({
             seed: `${params.seed ?? 'dungeon'}-level-${i}`,
