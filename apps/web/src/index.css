@@ -280,6 +280,31 @@ code {
   margin-bottom: 0;
 }
 
+/* ── Include toggles ────────────────────────────────────────────────────────── */
+
+.include-toggles {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.35rem;
+}
+
+.include-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #3a2e1a;
+  user-select: none;
+}
+
+.include-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #7a5c2f;
+}
+
 /* ── Structure type toggle ──────────────────────────────────────────────────── */
 
 .structure-toggle {
@@ -1186,6 +1211,10 @@ code {
   .form-group textarea:focus,
   .form-group select:focus {
     outline-color: #c8952f;
+  }
+
+  .include-toggle {
+    color: #c8b89a;
   }
 
   .structure-toggle {

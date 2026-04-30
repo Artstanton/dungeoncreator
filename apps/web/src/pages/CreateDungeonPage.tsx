@@ -34,6 +34,8 @@ interface FormValues {
   floorCount: number
   roomsMin: number
   roomsMax: number
+  includeEncounters: boolean
+  includeTreasures: boolean
   specificEncounters: string[]
   specificTreasures: string[]
   notes: string
@@ -62,6 +64,8 @@ const DEFAULTS: FormValues = {
   floorCount: 1,
   roomsMin: 4,
   roomsMax: 10,
+  includeEncounters: true,
+  includeTreasures: true,
   specificEncounters: [],
   specificTreasures: [],
   notes: '',
@@ -197,6 +201,8 @@ export function CreateDungeonPage() {
       ...(isBuilding ? { buildingType: form.buildingType } : {}),
       ...(random.floorCount ? {} : { floorCount: form.floorCount }),
       ...(random.roomsPerFloor ? {} : { roomsMin: form.roomsMin, roomsMax: form.roomsMax }),
+      includeEncounters: form.includeEncounters,
+      includeTreasures: form.includeTreasures,
       specificEncounters: random.specificEncounters ? [] : form.specificEncounters,
       specificTreasures: random.specificTreasures ? [] : form.specificTreasures,
       ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
@@ -555,8 +561,46 @@ export function CreateDungeonPage() {
           </button>
         </div>
 
+        {/* ── Include toggles ──────────────────────────────────────────────── */}
+        <div className="form-group">
+          <label>Include in generation</label>
+          <div className="include-toggles">
+            <label className="include-toggle">
+              <input
+                type="checkbox"
+                checked={form.includeEncounters}
+                onChange={(e) => {
+                  setField('includeEncounters', e.target.checked)
+                  if (!e.target.checked) {
+                    setField('specificEncounters', [])
+                    setEncounterInput('')
+                    setRandom((r) => ({ ...r, specificEncounters: false }))
+                  }
+                }}
+              />
+              Encounters
+            </label>
+            <label className="include-toggle">
+              <input
+                type="checkbox"
+                checked={form.includeTreasures}
+                onChange={(e) => {
+                  setField('includeTreasures', e.target.checked)
+                  if (!e.target.checked) {
+                    setField('specificTreasures', [])
+                    setTreasureInput('')
+                    setRandom((r) => ({ ...r, specificTreasures: false }))
+                  }
+                }}
+              />
+              Treasure
+            </label>
+          </div>
+          <p className="hint">Uncheck to skip generating encounters or treasure for all rooms.</p>
+        </div>
+
         {/* ── Specific Encounters ──────────────────────────────────────────── */}
-        <div className="random-row">
+        {form.includeEncounters && <div className="random-row">
           <div className="form-group">
             <label>Specific encounters</label>
             {random.specificEncounters ? (
@@ -613,10 +657,10 @@ export function CreateDungeonPage() {
           >
             {random.specificEncounters ? '✦ Random' : 'Random'}
           </button>
-        </div>
+        </div>}
 
         {/* ── Specific Treasures ───────────────────────────────────────────── */}
-        <div className="random-row">
+        {form.includeTreasures && <div className="random-row">
           <div className="form-group">
             <label>Specific treasures</label>
             {random.specificTreasures ? (
@@ -673,7 +717,7 @@ export function CreateDungeonPage() {
           >
             {random.specificTreasures ? '✦ Random' : 'Random'}
           </button>
-        </div>
+        </div>}
 
         {/* ── Notes ────────────────────────────────────────────────────────── */}
         <div className="form-group">

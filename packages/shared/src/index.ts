@@ -107,6 +107,10 @@ export const createDungeonInput = z.object({
   buildingType: buildingTypeSchema.nullable().optional(),
   specificTreasures: z.array(z.string()).default([]),
   specificEncounters: z.array(z.string()).default([]),
+  /** When false the AI omits encounters entirely — useful for non-combat buildings. */
+  includeEncounters: z.boolean().default(true),
+  /** When false the AI omits treasure entirely — useful for flavour-only locations. */
+  includeTreasures: z.boolean().default(true),
   notes: z.string().optional(),
   /** How many floors to generate. AI decides if randomize.floorCount is true. */
   floorCount: z.number().int().min(1).max(10).default(1),

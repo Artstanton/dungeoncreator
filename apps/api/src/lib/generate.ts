@@ -209,6 +209,8 @@ interface GenerateLevelParams {
   roomsMax: number
   specificEncounters: string[]
   specificTreasures: string[]
+  includeEncounters: boolean
+  includeTreasures: boolean
   previousLevelSummary?: string
 }
 
@@ -233,13 +235,15 @@ async function generateLevel(params: GenerateLevelParams): Promise<GeneratedLeve
         ? `floor ${params.levelIndex + 1} of ${params.floorCount} (descending into the earth)`
         : `floor ${params.levelIndex + 1} of ${params.floorCount}`
 
-  const encounterInstruction =
-    params.specificEncounters.length > 0
+  const encounterInstruction = !params.includeEncounters
+    ? null
+    : params.specificEncounters.length > 0
       ? `Must place somewhere across all rooms (distribute naturally): ${params.specificEncounters.join(', ')}.`
       : 'Choose appropriate encounters for the challenge rating.'
 
-  const treasureInstruction =
-    params.specificTreasures.length > 0
+  const treasureInstruction = !params.includeTreasures
+    ? null
+    : params.specificTreasures.length > 0
       ? `Must place somewhere across all rooms (distribute naturally): ${params.specificTreasures.join(', ')}.`
       : 'Choose appropriate treasure for the challenge rating.'
 
@@ -253,8 +257,8 @@ async function generateLevel(params: GenerateLevelParams): Promise<GeneratedLeve
     params.previousLevelSummary ? `Previous floor: ${params.previousLevelSummary}` : '',
     '',
     `Generate between ${params.roomsMin} and ${params.roomsMax} rooms for this floor. Choose a count that fits the level's character — entry halls and antechambers tend toward fewer rooms; sprawling crypts and barracks toward more.`,
-    `Encounters: ${encounterInstruction}`,
-    `Treasure: ${treasureInstruction}`,
+    encounterInstruction ? `Encounters: ${encounterInstruction}` : 'Encounters: Leave encounters empty for all rooms.',
+    treasureInstruction ? `Treasure: ${treasureInstruction}` : 'Treasure: Leave treasure empty for all rooms.',
     '',
     'Return a JSON object with:',
     '- levelName: a short evocative name for this floor (e.g. "The Ossuary", "Guard Barracks")',
@@ -321,6 +325,8 @@ interface GenerateBuildingLevelParams {
   roomsMax: number
   specificEncounters: string[]
   specificTreasures: string[]
+  includeEncounters: boolean
+  includeTreasures: boolean
   previousLevelSummary?: string
 }
 
@@ -334,13 +340,15 @@ async function generateBuildingLevel(params: GenerateBuildingLevelParams): Promi
           ? 'second upper floor'
           : `floor ${params.levelIndex + 1}`
 
-  const encounterInstruction =
-    params.specificEncounters.length > 0
+  const encounterInstruction = !params.includeEncounters
+    ? null
+    : params.specificEncounters.length > 0
       ? `Must include somewhere: ${params.specificEncounters.join(', ')}.`
       : 'Choose encounters appropriate for an adventuring location of this type.'
 
-  const treasureInstruction =
-    params.specificTreasures.length > 0
+  const treasureInstruction = !params.includeTreasures
+    ? null
+    : params.specificTreasures.length > 0
       ? `Must include somewhere: ${params.specificTreasures.join(', ')}.`
       : 'Choose treasure appropriate for this building type and challenge rating.'
 
@@ -356,8 +364,8 @@ async function generateBuildingLevel(params: GenerateBuildingLevelParams): Promi
     '',
     `Generate between ${params.roomsMin} and ${params.roomsMax} rooms for this floor. Choose a count that fits the floor's character — large common areas warrant fewer rooms; service areas with many small spaces warrant more.`,
     `Use room types appropriate for a ${params.buildingType}: e.g. common room, kitchen, cellar, storeroom, private chamber, great hall, chapel, barracks, armory, library, stable, gatehouse, etc.`,
-    `Encounters: ${encounterInstruction}`,
-    `Treasure: ${treasureInstruction}`,
+    encounterInstruction ? `Encounters: ${encounterInstruction}` : 'Encounters: Leave encounters empty for all rooms.',
+    treasureInstruction ? `Treasure: ${treasureInstruction}` : 'Treasure: Leave treasure empty for all rooms.',
     '',
     'Return a JSON object with:',
     '- levelName: a short descriptive name for this floor (e.g. "Ground Floor", "The Great Hall", "Upper Chambers")',
@@ -454,6 +462,8 @@ export async function generateDungeon(
     roomsMax: number
     specificEncounters: string[]
     specificTreasures: string[]
+    includeEncounters: boolean
+    includeTreasures: boolean
     randomize?: RandomizeFlags
   },
   onProgress?: (floorsComplete: number, floorsTotal: number) => void,
@@ -516,6 +526,8 @@ export async function generateDungeon(
             roomsMax: resolved.roomsMax,
             specificEncounters: params.specificEncounters,
             specificTreasures: params.specificTreasures,
+            includeEncounters: params.includeEncounters,
+            includeTreasures: params.includeTreasures,
             previousLevelSummary: prevSummary,
           })
         : await generateLevel({
@@ -530,6 +542,8 @@ export async function generateDungeon(
             roomsMax: resolved.roomsMax,
             specificEncounters: params.specificEncounters,
             specificTreasures: params.specificTreasures,
+            includeEncounters: params.includeEncounters,
+            includeTreasures: params.includeTreasures,
             previousLevelSummary: prevSummary,
           })
 

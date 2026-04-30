@@ -126,6 +126,8 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       density,
       structureType,
       buildingType,
+      includeEncounters,
+      includeTreasures,
       randomize,
       ...rest
     } = body.data
@@ -187,6 +189,8 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       roomsMax,
       specificEncounters: parseJson<string[]>(dungeon.specificEncounters),
       specificTreasures: parseJson<string[]>(dungeon.specificTreasures),
+      includeEncounters,
+      includeTreasures,
       randomize,
     }
     const dungeonId = dungeon.id
