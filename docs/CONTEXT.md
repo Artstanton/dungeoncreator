@@ -55,8 +55,8 @@ The user reviews each phase before the next one starts.
 3. ~~Dungeon generation form UI~~ ✅ (see `docs/phases/03-form-ui.md`)
 4. ~~Room Generator~~ ✅ (see `docs/phases/04-room-generator.md`)
 5. ~~Map Generator~~ ✅ (see `docs/phases/05-map-generator.md`)
-6. **Data management / Library view** ← next — list, detail, update, delete; grouping/filter by campaign
-7. Polish — loading states, empty states, error messages, accessibility, responsive layout, ESLint/Prettier
+6. ~~Data management / Library view~~ ✅ (see `docs/phases/06-library.md`)
+7. **Polish** ← next — loading states, empty states, error messages, accessibility, responsive layout, ESLint/Prettier
 
 ### Mid-phase additions completed after Phase 5
 
@@ -71,6 +71,16 @@ These features were layered in during the same working session as Phase 5 and ar
   - Walls now drawn at all room↔corridor boundaries (not just the outer map edge), so corridors running alongside non-connected rooms show a solid wall between them.
   - Door placement refactored to endpoint-transition approach: doors appear only where a corridor's tile list actually enters/exits a connected room. Falls back to travel-direction inference when the tile list starts/ends outside the room. Prevents spurious doors on shared walls.
   - Stair markers placed in a random quadrant of the room (seeded, deterministic) rather than dead-center, avoiding overlap with the room-number label.
+
+### Phase 6 — Library view (completed)
+
+- **Library page (`/dungeons`)** — responsive card grid showing all dungeons. Each card: name (link), campaign badge, CR range, floor count, direction, creation date. Default route now redirects to `/dungeons`.
+- **Campaign filter tabs** — client-side filtering by campaign (all dungeons load at once; no server query param needed). "Uncampaigned" tab appears automatically when applicable. Tab counts update live.
+- **Delete** — `DELETE /api/dungeons/:id` (204); uses `confirm()` dialog; card removed from UI without reload. Cascades to all levels and rooms via existing Prisma `onDelete: Cascade`. Filter falls back to "All" if the last card in the active tab is deleted.
+- **Navbar** — `apps/web/src/components/Navbar.tsx`. Dark parchment background (`#2a1f0e`). Brand link → `/dungeons`. Active "Library" link. "+ New Dungeon" CTA. Present on Library and Create pages; deliberately absent from Detail page (would break its full-bleed `calc(100vh - ...)` layout).
+- **Routing changes** — default redirect → `/dungeons`; Detail page back-link → "← Library" at `/dungeons`; Create page h1 → "New Dungeon".
+- **Shared type** — `DungeonListItem` schema + type added to `@dungeon/shared`. `GET /api/dungeons` response updated to include `density`.
+- **No new migrations or dependencies.**
 
 ### Phase deliverables
 
@@ -228,17 +238,22 @@ GET  /api/ping
 GET  /api/campaigns
 POST /api/campaigns
 
-GET  /api/dungeons
-GET  /api/dungeons/:id           -- includes levels[].rooms[] and levels[].mapData
-POST /api/dungeons               -- creates dungeon record, fires generation in background, returns { id } (202)
-GET  /api/dungeons/:id/progress  -- { floorsComplete, floorsTotal, done, errors[] }
+GET    /api/ping
+GET    /api/campaigns
+POST   /api/campaigns
 
-PATCH /api/rooms/:id             -- partial update of room content fields
+GET    /api/dungeons
+GET    /api/dungeons/:id           -- includes levels[].rooms[] and levels[].mapData
+POST   /api/dungeons               -- creates dungeon record, fires generation in background, returns { id } (202)
+DELETE /api/dungeons/:id           -- 204; cascades to levels + rooms
+GET    /api/dungeons/:id/progress  -- { floorsComplete, floorsTotal, done, errors[] }
+
+PATCH  /api/rooms/:id              -- partial update of room content fields
 ```
 
 ---
 
-## Repo layout (as of Phase 5 + mid-phase additions)
+## Repo layout (as of Phase 6)
 
 ```
 E:\dev\Dungeon Creator\
@@ -258,17 +273,19 @@ E:\dev\Dungeon Creator\
 │   │       │   └── prisma.ts     singleton Prisma client
 │   │       ├── routes/
 │   │       │   ├── campaigns.ts
-│   │       │   └── dungeons.ts   POST returns 202 + { id }; GET progress; PATCH /api/rooms/:id
+│   │       │   └── dungeons.ts   POST/GET/DELETE dungeons; GET progress; PATCH /api/rooms/:id
 │   │       └── index.ts
 │   └── web/
 │       └── src/
 │           ├── api/
-│           │   └── client.ts     createDungeon → { id }; getDungeonProgress; getDungeon; updateRoom
+│           │   └── client.ts     createDungeon; getDungeons; deleteDungeon; getDungeonProgress; getDungeon; updateRoom
 │           ├── components/
-│           │   └── DungeonMap.tsx   interactive SVG map renderer (React)
+│           │   ├── DungeonMap.tsx   interactive SVG map renderer (React)
+│           │   └── Navbar.tsx       app nav — brand link, Library link, + New Dungeon CTA
 │           ├── lib/
 │           │   └── mapSvg.ts     pure string SVG builder (no React) — used by export
 │           ├── pages/
+│           │   ├── LibraryPage.tsx         dungeon list + campaign filter tabs + delete
 │           │   ├── CreateDungeonPage.tsx   form + progress polling UI
 │           │   └── DungeonDetailPage.tsx   map + room panel + edit mode + export
 │           ├── App.tsx
@@ -284,7 +301,8 @@ E:\dev\Dungeon Creator\
 │       ├── 02-data-model.md
 │       ├── 03-form-ui.md
 │       ├── 04-room-generator.md
-│       └── 05-map-generator.md
+│       ├── 05-map-generator.md
+│       └── 06-library.md
 ├── data/
 │   └── dev.db             SQLite database (gitignored)
 ├── .env                   gitignored — copy from .env.example
@@ -303,9 +321,9 @@ GitHub: https://github.com/Artstanton/dungeoncreator
 ## How to resume
 
 1. `cd /e/dev/Dungeon\ Creator` (Git Bash) — or `cd "E:\dev\Dungeon Creator"` (PowerShell).
-2. Read this file. Optionally skim phase docs `01` through `05`.
+2. Read this file. Optionally skim phase docs `01` through `06`.
 3. Run `pnpm install && pnpm dev`. Confirm the API terminal logs `[grok] model=grok-4-1-fast-reasoning  key=xai-...` with a non-empty key prefix.
-4. Phases 1–5 + all mid-phase additions are complete and working. Tagged as **v1.0**. Next is **Phase 6 — Data management / Library view**.
+4. Phases 1–6 are complete and working. Next is **Phase 7 — Polish**.
 
 ---
 

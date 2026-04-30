@@ -407,7 +407,7 @@ export default function DungeonDetailPage() {
     <div className="detail-page">
       <header className="detail-header">
         <div className="detail-header__top">
-          <Link to="/dungeons/new" className="detail-back">← New dungeon</Link>
+          <Link to="/dungeons" className="detail-back">← Library</Link>
           {dungeon.campaign && (
             <span className="campaign-badge">{dungeon.campaign.name}</span>
           )}

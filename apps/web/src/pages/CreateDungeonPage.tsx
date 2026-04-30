@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createDungeonInput, type CampaignListItem, type DungeonProgress } from '@dungeon/shared'
 import { getCampaigns, createDungeon, getDungeonProgress } from '../api/client'
+import Navbar from '../components/Navbar'
 
 type Direction = 'up' | 'down' | 'both'
 
@@ -233,7 +234,9 @@ export function CreateDungeonPage() {
           : `Generating floor ${complete + 1} of ${total}…`
 
     return (
-      <main className="container">
+      <>
+        <Navbar />
+        <main className="container">
         <h1>{generatingName}</h1>
         <div className="gen-progress">
           <p className="gen-progress__status">{statusText}</p>
@@ -261,13 +264,16 @@ export function CreateDungeonPage() {
             </div>
           )}
         </div>
-      </main>
+        </main>
+      </>
     )
   }
 
   return (
-    <main className="container">
-      <h1>Dungeon Creator</h1>
+    <>
+      <Navbar />
+      <main className="container">
+      <h1>New Dungeon</h1>
       <p className="tagline">Configure your dungeon. Toggle <strong>Random</strong> on any field to let the AI decide.</p>
 
       <form onSubmit={handleSubmit} noValidate>
@@ -639,6 +645,7 @@ export function CreateDungeonPage() {
           {submitting ? 'Generating dungeon… (this may take a minute)' : 'Create dungeon'}
         </button>
       </form>
-    </main>
+      </main>
+    </>
   )
 }

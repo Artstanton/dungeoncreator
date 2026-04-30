@@ -32,6 +32,7 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
       crMin: d.crMin,
       crMax: d.crMax,
       direction: d.direction,
+      density: d.density,
       levelCount: d._count.levels,
       createdAt: d.createdAt.toISOString(),
       updatedAt: d.updatedAt.toISOString(),
@@ -221,6 +222,15 @@ export const dungeonRoutes: FastifyPluginAsync = async (app) => {
     // Treat an existing dungeon with levels as fully generated.
     const n = dungeon._count.levels
     return { floorsComplete: n, floorsTotal: n, done: true, errors: [] }
+  })
+
+  // ── DELETE /api/dungeons/:id ────────────────────────────────────────────────
+  // Cascade-deletes all levels and rooms via Prisma onDelete: Cascade.
+  app.delete<{ Params: { id: string } }>('/api/dungeons/:id', async (req, reply) => {
+    const existing = await prisma.dungeon.findUnique({ where: { id: req.params.id } })
+    if (!existing) return reply.notFound('Dungeon not found.')
+    await prisma.dungeon.delete({ where: { id: req.params.id } })
+    reply.status(204)
   })
 
   // ── PATCH /api/rooms/:id ────────────────────────────────────────────────────

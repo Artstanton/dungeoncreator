@@ -183,6 +183,23 @@ export const updateRoomInput = z.object({
 
 export type UpdateRoomInput = z.infer<typeof updateRoomInput>
 
+// ─── Phase 6: dungeon list item ───────────────────────────────────────────────
+
+export const dungeonListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  campaign: z.object({ id: z.string(), name: z.string() }).nullable(),
+  crMin: z.number().int(),
+  crMax: z.number().int(),
+  direction: directionSchema,
+  density: z.number().int(),
+  levelCount: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export type DungeonListItem = z.infer<typeof dungeonListItemSchema>
+
 // ─── Phase 5: map data ────────────────────────────────────────────────────────
 
 /** A single room's position and size on the tile grid. */
