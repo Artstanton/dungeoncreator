@@ -1,35 +1,32 @@
 /**
- * buildMapSvg — generates a self-contained SVG string for a dungeon level.
+ * buildMapSvg — generates a self-contained SVG string for a dungeon or building level.
  *
  * Used by the print/export feature.  Mirrors the visual logic of DungeonMap.tsx
- * but outputs a plain string instead of React JSX, so it can be embedded in
- * an arbitrary HTML document without needing the React runtime.
+ * but outputs a plain string instead of React JSX.
  */
 
-import type { MapData } from '@dungeon/shared'
+import type { MapData, BuildingDoor } from '@dungeon/shared'
 
 const TILE = 22
 const WALL = 3
 
-// ─── Wall edge computation ────────────────────────────────────────────────────
+// ─── Unified wall edge computation ───────────────────────────────────────────
 
-function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>, roomTiles: Set<string>): string {
-  const segs: string[] = []
+function wallPathD(allTiles: Array<[number, number]>, roomOf: Map<string, number>): string {
   const dirs: Array<[number, number, 'h' | 'v', number, number]> = [
     [0, -1, 'h', 0, 0],
     [0,  1, 'h', 0, 1],
     [-1, 0, 'v', 0, 0],
     [ 1, 0, 'v', 1, 0],
   ]
+  const segs: string[] = []
   for (const [tx, ty] of allTiles) {
-    const isRoom = roomTiles.has(`${tx},${ty}`)
+    const myId = roomOf.get(`${tx},${ty}`) ?? -1
     for (const [dx, dy, axis, ox, oy] of dirs) {
-      const nx = tx + dx, ny = ty + dy
-      const neighborOccupied = occupied.has(`${nx},${ny}`)
-      const neighborIsRoom   = roomTiles.has(`${nx},${ny}`)
-      // Draw a wall whenever the neighbour is empty OR whenever we cross a
-      // room↔corridor boundary (so corridors running beside rooms get a wall).
-      if (!neighborOccupied || isRoom !== neighborIsRoom) {
+      const nk = `${tx + dx},${ty + dy}`
+      const neighborMissing = !roomOf.has(nk)
+      const neighborId      = roomOf.get(nk) ?? -1
+      if (neighborMissing || myId !== neighborId) {
         const px = (tx + ox) * TILE
         const py = (ty + oy) * TILE
         segs.push(axis === 'h'
@@ -41,21 +38,11 @@ function wallPathD(occupied: Set<string>, allTiles: Array<[number, number]>, roo
   return segs.join(' ')
 }
 
-// ─── Door detection (mirrors DungeonMap.tsx endpoint-transition approach) ────────
-//
-// Doors are placed only where a corridor actually enters or exits its connected
-// room — at the first non-room tile from each end of the corridor's tile list.
-// This prevents spurious doors where a corridor runs alongside a room it isn't
-// connected to.
+// ─── Door detection (dungeon corridors) ──────────────────────────────────────
 
 interface Door { px: number; py: number; axis: 'v' | 'h' }
 
-function placeDoor(
-  tx: number, ty: number,
-  dx: number, dy: number,
-  doors: Door[],
-  placed: Set<string>,
-): void {
+function placeDoor(tx: number, ty: number, dx: number, dy: number, doors: Door[], placed: Set<string>): void {
   const axis: 'v' | 'h' = dx !== 0 ? 'v' : 'h'
   const px = dx !== 0 ? (dx === 1 ? tx + 1 : tx) * TILE : tx * TILE + TILE / 2
   const py = dy !== 0 ? (dy === 1 ? ty + 1 : ty) * TILE : ty * TILE + TILE / 2
@@ -75,90 +62,94 @@ function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): 
     const tiles = corridor.tiles
     if (tiles.length === 0) continue
 
-    // Find the first non-room tile (corridor exits fromRoom here).
     let s = 0
     while (s < tiles.length && roomTiles.has(`${tiles[s]![0]},${tiles[s]![1]}`)) s++
-
-    // Find the last non-room tile (corridor enters toRoom here).
     let e = tiles.length - 1
     while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
-
     if (s > e) continue
 
-    // Door at the fromRoom exit.
     if (s > 0) {
-      const [tx, ty] = tiles[s]!
-      const [rx, ry] = tiles[s - 1]!
+      const [tx, ty] = tiles[s]!; const [rx, ry] = tiles[s - 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     } else if (tiles.length >= 2) {
-      // No room tiles at start — room is opposite to direction of travel.
-      const [tx, ty] = tiles[0]!
-      const [nx, ny] = tiles[1]!
-      const dx = tx - nx
-      const dy = ty - ny
+      const [tx, ty] = tiles[0]!; const [nx, ny] = tiles[1]!
+      const dx = tx - nx, dy = ty - ny
       if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
         placeDoor(tx, ty, dx, dy, doors, placed)
       } else {
         for (const [fdx, fdy] of DOOR_DIRS) {
-          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
-            placeDoor(tx, ty, fdx, fdy, doors, placed)
-            break
-          }
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) { placeDoor(tx, ty, fdx, fdy, doors, placed); break }
         }
       }
     }
 
-    // Door at the toRoom entry.
     if (e < tiles.length - 1) {
-      const [tx, ty] = tiles[e]!
-      const [rx, ry] = tiles[e + 1]!
+      const [tx, ty] = tiles[e]!; const [rx, ry] = tiles[e + 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     } else if (tiles.length >= 2) {
-      // No room tiles at end — room is ahead in direction of travel.
-      const [tx, ty] = tiles[e]!
-      const [px, py] = tiles[e - 1]!
-      const dx = tx - px
-      const dy = ty - py
+      const [tx, ty] = tiles[e]!; const [px, py] = tiles[e - 1]!
+      const dx = tx - px, dy = ty - py
       if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
         placeDoor(tx, ty, dx, dy, doors, placed)
       } else {
         for (const [fdx, fdy] of DOOR_DIRS) {
-          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
-            placeDoor(tx, ty, fdx, fdy, doors, placed)
-            break
-          }
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) { placeDoor(tx, ty, fdx, fdy, doors, placed); break }
         }
       }
     }
   }
-
   return doors
+}
+
+function buildingDoorMarkers(buildingDoors: BuildingDoor[]): Door[] {
+  return buildingDoors.map((d) => ({
+    axis: d.axis,
+    px: d.axis === 'v' ? d.wallX * TILE            : d.wallX * TILE + TILE / 2,
+    py: d.axis === 'h' ? d.wallY * TILE            : d.wallY * TILE + TILE / 2,
+  }))
+}
+
+// ─── Door SVG strings ─────────────────────────────────────────────────────────
+
+function doorSvg(doors: Door[]): string {
+  const gap = TILE * 0.58, slabW = 2.5, slabLen = TILE * 0.52
+  return doors.map((d) => {
+    if (d.axis === 'v') return [
+      `<rect x="${d.px - WALL}" y="${d.py - gap / 2}" width="${WALL * 2}" height="${gap}" fill="white"/>`,
+      `<rect x="${d.px - slabW / 2}" y="${d.py - slabLen / 2}" width="${slabW}" height="${slabLen}" fill="#2a2a2a"/>`,
+    ].join('')
+    return [
+      `<rect x="${d.px - gap / 2}" y="${d.py - WALL}" width="${gap}" height="${WALL * 2}" fill="white"/>`,
+      `<rect x="${d.px - slabLen / 2}" y="${d.py - slabW / 2}" width="${slabLen}" height="${slabW}" fill="#2a2a2a"/>`,
+    ].join('')
+  }).join('')
 }
 
 // ─── SVG string builder ───────────────────────────────────────────────────────
 
 export function buildMapSvg(mapData: MapData): string {
   const { width, height, rooms, corridors, stairs } = mapData
+  const isBuilding = mapData.mapType === 'building'
 
+  const roomOf   = new Map<string, number>()
   const allTiles: Array<[number, number]> = []
-  const occupied  = new Set<string>()
-  const roomTiles = new Set<string>()
 
   for (const room of rooms) {
     for (let dy = 0; dy < room.h; dy++) {
       for (let dx = 0; dx < room.w; dx++) {
-        const tx = room.x + dx, ty = room.y + dy
-        allTiles.push([tx, ty])
-        occupied.add(`${tx},${ty}`)
-        roomTiles.add(`${tx},${ty}`)
+        const k = `${room.x + dx},${room.y + dy}`
+        roomOf.set(k, room.id)
+        allTiles.push([room.x + dx, room.y + dy])
       }
     }
   }
-  for (const corridor of corridors) {
-    for (const [cx, cy] of corridor.tiles) {
-      if (!occupied.has(`${cx},${cy}`)) {
-        allTiles.push([cx, cy])
-        occupied.add(`${cx},${cy}`)
+
+  const roomTiles = new Set<string>(roomOf.keys())
+  if (!isBuilding) {
+    for (const corridor of corridors) {
+      for (const [cx, cy] of corridor.tiles) {
+        const k = `${cx},${cy}`
+        if (!roomOf.has(k)) { roomOf.set(k, -1); allTiles.push([cx, cy]) }
       }
     }
   }
@@ -166,8 +157,8 @@ export function buildMapSvg(mapData: MapData): string {
   const svgW = width  * TILE
   const svgH = height * TILE
 
-  // Corridor fills
-  const corridorRects = corridors.flatMap((c) =>
+  // Corridor fills (dungeon only)
+  const corridorRects = isBuilding ? '' : corridors.flatMap((c) =>
     c.tiles
       .filter(([tx, ty]) => !roomTiles.has(`${tx},${ty}`))
       .map(([tx, ty]) =>
@@ -189,21 +180,14 @@ export function buildMapSvg(mapData: MapData): string {
   }).join('')
 
   // Walls
-  const wallD = wallPathD(occupied, allTiles, roomTiles)
+  const wallD  = wallPathD(allTiles, roomOf)
   const wallEl = `<path d="${wallD}" stroke="black" stroke-width="${WALL}" stroke-linecap="square" fill="none"/>`
 
   // Doors
-  const gap = TILE * 0.58, slabW = 2.5, slabLen = TILE * 0.52
-  const doorElems = computeDoors(corridors, roomTiles).map((d) => {
-    if (d.axis === 'v') return [
-      `<rect x="${d.px - WALL}" y="${d.py - gap / 2}" width="${WALL * 2}" height="${gap}" fill="white"/>`,
-      `<rect x="${d.px - slabW / 2}" y="${d.py - slabLen / 2}" width="${slabW}" height="${slabLen}" fill="#2a2a2a"/>`,
-    ].join('')
-    return [
-      `<rect x="${d.px - gap / 2}" y="${d.py - WALL}" width="${gap}" height="${WALL * 2}" fill="white"/>`,
-      `<rect x="${d.px - slabLen / 2}" y="${d.py - slabW / 2}" width="${slabLen}" height="${slabW}" fill="#2a2a2a"/>`,
-    ].join('')
-  }).join('')
+  const doors = isBuilding
+    ? buildingDoorMarkers(mapData.buildingDoors ?? [])
+    : computeDoors(corridors, roomTiles)
+  const doorElems = doorSvg(doors)
 
   // Room number labels
   const labelElems = rooms.map((r) => {
@@ -215,14 +199,12 @@ export function buildMapSvg(mapData: MapData): string {
 
   // Stair glyphs
   const stairElems = stairs.map((s) => {
-    const cx = s.x * TILE + TILE / 2
-    const cy = s.y * TILE + TILE / 2
+    const cx = s.x * TILE + TILE / 2, cy = s.y * TILE + TILE / 2
     const up = s.direction === 'up'
     const rw = TILE * 0.8, rh = TILE * 0.55
     const rx = cx - rw / 2, ry = cy - rh / 2
-    const numLines = 3
-    const stepLines = Array.from({ length: numLines }, (_, i) => {
-      const lineY = ry + (rh / (numLines + 1)) * (i + 1)
+    const stepLines = Array.from({ length: 3 }, (_, i) => {
+      const lineY = ry + (rh / 4) * (i + 1)
       return `<line x1="${rx + 1}" y1="${lineY}" x2="${rx + rw - 1}" y2="${lineY}" stroke="#2a2a2a" stroke-width="0.8"/>`
     }).join('')
     const arrowOffset = rh / 2 + 5
@@ -239,9 +221,11 @@ export function buildMapSvg(mapData: MapData): string {
     ].join('')
   }).join('')
 
+  const bg = isBuilding ? 'white' : '#c8c8c8'
+
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" style="max-width:100%;height:auto">`,
-    `<rect x="0" y="0" width="${svgW}" height="${svgH}" fill="#c8c8c8"/>`,
+    `<rect x="0" y="0" width="${svgW}" height="${svgH}" fill="${bg}"/>`,
     corridorRects,
     roomElems,
     wallEl,

@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 import { z } from 'zod'
 import { getGrok, getModel } from './grok.js'
 import { prisma } from './prisma.js'
-import { generateMap } from './map.js'
+import { generateMap, generateBuilding } from './map.js'
 import type { RandomizeFlags } from '@dungeon/shared'
 
 // ─── AI response schemas ──────────────────────────────────────────────────────
@@ -307,6 +307,107 @@ async function generateLevel(params: GenerateLevelParams): Promise<GeneratedLeve
   })
 }
 
+// ─── Building level generation ────────────────────────────────────────────────
+
+interface GenerateBuildingLevelParams {
+  buildingName: string
+  buildingType: string
+  theme: string | undefined
+  crMin: number
+  crMax: number
+  levelIndex: number
+  floorCount: number
+  roomsMin: number
+  roomsMax: number
+  specificEncounters: string[]
+  specificTreasures: string[]
+  previousLevelSummary?: string
+}
+
+async function generateBuildingLevel(params: GenerateBuildingLevelParams): Promise<GeneratedLevel> {
+  const floorLabel =
+    params.levelIndex === 0
+      ? 'ground floor'
+      : params.levelIndex === 1
+        ? 'first upper floor'
+        : params.levelIndex === 2
+          ? 'second upper floor'
+          : `floor ${params.levelIndex + 1}`
+
+  const encounterInstruction =
+    params.specificEncounters.length > 0
+      ? `Must include somewhere: ${params.specificEncounters.join(', ')}.`
+      : 'Choose encounters appropriate for an adventuring location of this type.'
+
+  const treasureInstruction =
+    params.specificTreasures.length > 0
+      ? `Must include somewhere: ${params.specificTreasures.join(', ')}.`
+      : 'Choose treasure appropriate for this building type and challenge rating.'
+
+  const prompt = [
+    `You are a dungeon master writing room content for a ${params.buildingType} in a tabletop RPG.`,
+    '',
+    `Building: "${params.buildingName}"`,
+    `Type: ${params.buildingType}`,
+    params.theme ? `Atmosphere: ${params.theme}` : '',
+    `Challenge Rating: ${params.crMin}–${params.crMax}`,
+    `Floor: ${floorLabel} (${params.levelIndex + 1} of ${params.floorCount})`,
+    params.previousLevelSummary ? `Previous floor: ${params.previousLevelSummary}` : '',
+    '',
+    `Generate between ${params.roomsMin} and ${params.roomsMax} rooms for this floor. Choose a count that fits the floor's character — large common areas warrant fewer rooms; service areas with many small spaces warrant more.`,
+    `Use room types appropriate for a ${params.buildingType}: e.g. common room, kitchen, cellar, storeroom, private chamber, great hall, chapel, barracks, armory, library, stable, gatehouse, etc.`,
+    `Encounters: ${encounterInstruction}`,
+    `Treasure: ${treasureInstruction}`,
+    '',
+    'Return a JSON object with:',
+    '- levelName: a short descriptive name for this floor (e.g. "Ground Floor", "The Great Hall", "Upper Chambers")',
+    `- rooms: array of ${params.roomsMin}–${params.roomsMax} objects, each with:`,
+    '  - name: short room name (2–4 words)',
+    '  - description: 2–3 sentences read aloud when players enter (second-person present tense)',
+    '  - encounters: string[] (can be empty)',
+    '  - treasure: string[] (can be empty)',
+    '  - secrets: string — a hidden feature players might discover (omit if none)',
+    '  - hooks: string — a plot hook or NPC detail (omit if mundane)',
+    '',
+    'Be specific and evocative. Return only valid JSON.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  return await withRetry(async () => {
+    const res = await getGrok().chat.completions.create({
+      model: getModel(),
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      max_tokens: Math.min(6000, Math.max(1500, params.roomsMax * 150)),
+      temperature: 0.85,
+    })
+
+    const content = res.choices[0]?.message?.content
+    if (!content) throw new Error('Empty response from Grok')
+
+    let json: unknown
+    try {
+      json = JSON.parse(extractJson(content))
+    } catch {
+      throw new Error('Grok returned malformed JSON — will retry')
+    }
+
+    const parsed = grokLevelResponseSchema.safeParse(json)
+    if (!parsed.success) {
+      throw new Error(
+        `Unexpected response shape: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      )
+    }
+
+    return {
+      levelName: parsed.data.levelName ?? `Floor ${params.levelIndex + 1}`,
+      rooms: parsed.data.rooms.slice(0, params.roomsMax),
+      rawResponse: content,
+    }
+  })
+}
+
 // ─── Floor index mapping ──────────────────────────────────────────────────────
 
 function toFloorIndex(generationIndex: number, direction: string): number {
@@ -346,6 +447,8 @@ export async function generateDungeon(
     seed: string
     direction: string
     density: number
+    structureType: string
+    buildingType?: string | null
     floorCount: number
     roomsMin: number
     roomsMax: number
@@ -396,43 +499,61 @@ export async function generateDungeon(
   const levelResults: LevelGenerationResult[] = []
   let prevSummary: string | undefined
 
+  const isBuilding = params.structureType === 'building'
+
   for (let i = 0; i < resolved.floorCount; i++) {
     try {
-      const levelData = await generateLevel({
-        dungeonName: params.dungeonName,
-        theme: resolved.theme ?? 'classic fantasy dungeon',
-        crMin: resolved.crMin,
-        crMax: resolved.crMax,
-        direction: params.direction,
-        levelIndex: i,
-        floorCount: resolved.floorCount,
-        roomsMin: resolved.roomsMin,
-        roomsMax: resolved.roomsMax,
-        specificEncounters: params.specificEncounters,
-        specificTreasures: params.specificTreasures,
-        previousLevelSummary: prevSummary,
-      })
+      const levelData = isBuilding
+        ? await generateBuildingLevel({
+            buildingName: params.dungeonName,
+            buildingType: params.buildingType ?? 'building',
+            theme: resolved.theme,
+            crMin: resolved.crMin,
+            crMax: resolved.crMax,
+            levelIndex: i,
+            floorCount: resolved.floorCount,
+            roomsMin: resolved.roomsMin,
+            roomsMax: resolved.roomsMax,
+            specificEncounters: params.specificEncounters,
+            specificTreasures: params.specificTreasures,
+            previousLevelSummary: prevSummary,
+          })
+        : await generateLevel({
+            dungeonName: params.dungeonName,
+            theme: resolved.theme ?? 'classic fantasy dungeon',
+            crMin: resolved.crMin,
+            crMax: resolved.crMax,
+            direction: params.direction,
+            levelIndex: i,
+            floorCount: resolved.floorCount,
+            roomsMin: resolved.roomsMin,
+            roomsMax: resolved.roomsMax,
+            specificEncounters: params.specificEncounters,
+            specificTreasures: params.specificTreasures,
+            previousLevelSummary: prevSummary,
+          })
 
       const floorIndex = toFloorIndex(i, params.direction)
 
-      // Generate the algorithmic map layout for this level.
-      const mapData = generateMap({
-        seed: `${params.seed ?? 'dungeon'}-level-${i}`,
-        roomCount: levelData.rooms.length,
-        direction: params.direction,
-        density: params.density,
-        isEntry: i === 0,
-        hasLevelAbove: params.direction === 'down'
-          ? i > 0
-          : params.direction === 'up'
-            ? i < resolved.floorCount - 1
-            : i > 0,
-        hasLevelBelow: params.direction === 'down'
-          ? i < resolved.floorCount - 1
-          : params.direction === 'up'
-            ? i > 0
-            : i < resolved.floorCount - 1,
-      })
+      const hasAbove = params.direction === 'down' ? i > 0 : params.direction === 'up' ? i < resolved.floorCount - 1 : i > 0
+      const hasBelow = params.direction === 'down' ? i < resolved.floorCount - 1 : params.direction === 'up' ? i > 0 : i < resolved.floorCount - 1
+
+      const mapData = isBuilding
+        ? generateBuilding({
+            seed: `${params.seed}-level-${i}`,
+            roomCount: levelData.rooms.length,
+            hasLevelAbove: hasAbove,
+            hasLevelBelow: hasBelow,
+          })
+        : generateMap({
+            seed: `${params.seed ?? 'dungeon'}-level-${i}`,
+            roomCount: levelData.rooms.length,
+            direction: params.direction,
+            density: params.density,
+            isEntry: i === 0,
+            hasLevelAbove: hasAbove,
+            hasLevelBelow: hasBelow,
+          })
 
       // Save level + all rooms in a single transaction.
       const level = await prisma.level.create({

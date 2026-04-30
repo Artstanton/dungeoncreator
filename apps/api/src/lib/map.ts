@@ -23,7 +23,7 @@
  */
 
 import seedrandom from 'seedrandom'
-import type { MapData, MapRoom, Corridor, StairMarker } from '@dungeon/shared'
+import type { MapData, MapRoom, Corridor, StairMarker, BuildingDoor } from '@dungeon/shared'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -460,5 +460,166 @@ export function generateMap(params: GenerateMapParams): MapData {
     rooms: shiftedRooms,
     corridors: shiftedCorridors,
     stairs: shiftedStairs,
+  }
+}
+
+// ─── Building map generator (BSP) ────────────────────────────────────────────
+
+export interface GenerateBuildingParams {
+  seed: string
+  roomCount: number
+  hasLevelAbove: boolean
+  hasLevelBelow: boolean
+}
+
+const BUILDING_MARGIN = 1
+const MIN_ROOM_SIZE   = 3
+
+/**
+ * Recursively partition a rectangle into exactly `count` rooms using BSP.
+ * Fills `rooms` and `doors` arrays in place.
+ */
+function bspPartition(
+  x: number, y: number, w: number, h: number,
+  count: number,
+  rng: seedrandom.PRNG,
+  rooms: MapRoom[],
+  doors: BuildingDoor[],
+): void {
+  if (count <= 0) return
+
+  if (count === 1) {
+    rooms.push({ id: rooms.length, x, y, w, h })
+    return
+  }
+
+  const canSplitH = w >= MIN_ROOM_SIZE * 2 + 1
+  const canSplitV = h >= MIN_ROOM_SIZE * 2 + 1
+
+  if (!canSplitH && !canSplitV) {
+    // No space to split — force a single room and skip the extras.
+    rooms.push({ id: rooms.length, x, y, w, h })
+    return
+  }
+
+  // Prefer the longer axis; break ties randomly.
+  let splitH: boolean
+  if (!canSplitH)      splitH = false
+  else if (!canSplitV) splitH = true
+  else splitH = w >= h ? rng() < 0.65 : rng() < 0.35
+
+  const leftCount  = Math.floor(count / 2)
+  const rightCount = count - leftCount
+
+  if (splitH) {
+    // Split left | right along a vertical seam at x + splitAt.
+    const minSplit = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
+    const maxSplit = Math.min(w - MIN_ROOM_SIZE, w - rightCount * MIN_ROOM_SIZE)
+    const splitAt  = randInt(rng, minSplit, maxSplit)
+
+    const leftStart = rooms.length
+    bspPartition(x, y, splitAt, h, leftCount, rng, rooms, doors)
+    const leftEnd = rooms.length
+
+    const rightStart = rooms.length
+    bspPartition(x + splitAt, y, w - splitAt, h, rightCount, rng, rooms, doors)
+    const rightEnd = rooms.length
+
+    // Connect one room from each partition that touch the seam.
+    const seam = x + splitAt
+    const leftCandidates  = rooms.slice(leftStart,  leftEnd ).filter(r => r.x + r.w === seam)
+    const rightCandidates = rooms.slice(rightStart, rightEnd).filter(r => r.x       === seam)
+
+    const lRoom = pick(rng, leftCandidates.length  ? leftCandidates  : rooms.slice(leftStart,  leftEnd ))
+    const rRoom = pick(rng, rightCandidates.length ? rightCandidates : rooms.slice(rightStart, rightEnd))
+
+    // Door Y: middle of the Y overlap between the two rooms, or their averaged centres.
+    const overlapY1 = Math.max(lRoom.y, rRoom.y)
+    const overlapY2 = Math.min(lRoom.y + lRoom.h, rRoom.y + rRoom.h)
+    const doorY = overlapY1 < overlapY2
+      ? Math.floor((overlapY1 + overlapY2) / 2)
+      : Math.floor((lRoom.y + lRoom.h / 2 + rRoom.y + rRoom.h / 2) / 2)
+
+    doors.push({ fromRoom: lRoom.id, toRoom: rRoom.id, wallX: seam, wallY: doorY, axis: 'v' })
+  } else {
+    // Split top | bottom along a horizontal seam at y + splitAt.
+    const minSplit = Math.max(MIN_ROOM_SIZE, leftCount  * MIN_ROOM_SIZE)
+    const maxSplit = Math.min(h - MIN_ROOM_SIZE, h - rightCount * MIN_ROOM_SIZE)
+    const splitAt  = randInt(rng, minSplit, maxSplit)
+
+    const topStart = rooms.length
+    bspPartition(x, y, w, splitAt, leftCount, rng, rooms, doors)
+    const topEnd = rooms.length
+
+    const bottomStart = rooms.length
+    bspPartition(x, y + splitAt, w, h - splitAt, rightCount, rng, rooms, doors)
+    const bottomEnd = rooms.length
+
+    const seam = y + splitAt
+    const topCandidates    = rooms.slice(topStart,    topEnd   ).filter(r => r.y + r.h === seam)
+    const bottomCandidates = rooms.slice(bottomStart, bottomEnd).filter(r => r.y       === seam)
+
+    const tRoom = pick(rng, topCandidates.length    ? topCandidates    : rooms.slice(topStart,    topEnd   ))
+    const bRoom = pick(rng, bottomCandidates.length ? bottomCandidates : rooms.slice(bottomStart, bottomEnd))
+
+    const overlapX1 = Math.max(tRoom.x, bRoom.x)
+    const overlapX2 = Math.min(tRoom.x + tRoom.w, bRoom.x + bRoom.w)
+    const doorX = overlapX1 < overlapX2
+      ? Math.floor((overlapX1 + overlapX2) / 2)
+      : Math.floor((tRoom.x + tRoom.w / 2 + bRoom.x + bRoom.w / 2) / 2)
+
+    doors.push({ fromRoom: tRoom.id, toRoom: bRoom.id, wallX: doorX, wallY: seam, axis: 'h' })
+  }
+}
+
+export function generateBuilding(params: GenerateBuildingParams): MapData {
+  const rng = seedrandom(params.seed)
+  const n   = Math.max(1, params.roomCount)
+
+  // Building footprint: roughly square, sized so each room averages ≥4×4 tiles.
+  // Add slight seeded aspect-ratio variation.
+  const baseSide = Math.max(12, Math.ceil(4 * Math.sqrt(n) + 4))
+  const arFactor = 0.8 + rng() * 0.4  // 0.8 … 1.2
+  const bldW = Math.round(baseSide * arFactor)
+  const bldH = Math.round(baseSide / arFactor)
+
+  const rooms: MapRoom[]    = []
+  const doors: BuildingDoor[] = []
+
+  bspPartition(0, 0, bldW, bldH, n, rng, rooms, doors)
+
+  // Shift everything to leave a margin so exterior walls aren't clipped.
+  const shiftedRooms = rooms.map(r => ({ ...r, x: r.x + BUILDING_MARGIN, y: r.y + BUILDING_MARGIN }))
+  const shiftedDoors = doors.map(d => ({ ...d, wallX: d.wallX + BUILDING_MARGIN, wallY: d.wallY + BUILDING_MARGIN }))
+
+  // Stairs (same logic as dungeon: placed in a random quadrant of the room).
+  function stairTileB(room: MapRoom): { x: number; y: number } {
+    const cx = Math.floor(room.x + room.w / 2)
+    const cy = Math.floor(room.y + room.h / 2)
+    const qx  = rng() < 0.5 ? -1 : 1
+    const qy  = rng() < 0.5 ? -1 : 1
+    const offX = Math.max(1, Math.floor(room.w / 3))
+    const offY = Math.max(1, Math.floor(room.h / 3))
+    return { x: cx + qx * offX, y: cy + qy * offY }
+  }
+
+  const stairs: StairMarker[] = []
+  if (params.hasLevelAbove && shiftedRooms[0]) {
+    const { x, y } = stairTileB(shiftedRooms[0])
+    stairs.push({ x, y, direction: 'up' })
+  }
+  if (params.hasLevelBelow && shiftedRooms[shiftedRooms.length - 1]) {
+    const { x, y } = stairTileB(shiftedRooms[shiftedRooms.length - 1]!)
+    stairs.push({ x, y, direction: 'down' })
+  }
+
+  return {
+    width:  bldW + BUILDING_MARGIN * 2,
+    height: bldH + BUILDING_MARGIN * 2,
+    rooms: shiftedRooms,
+    corridors: [],
+    stairs,
+    mapType: 'building',
+    buildingDoors: shiftedDoors,
   }
 }

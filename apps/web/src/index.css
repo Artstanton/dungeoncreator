@@ -280,6 +280,41 @@ code {
   margin-bottom: 0;
 }
 
+/* ── Structure type toggle ──────────────────────────────────────────────────── */
+
+.structure-toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1.5px solid #c8a86a;
+  width: fit-content;
+}
+
+.structure-btn {
+  padding: 0.45rem 1.4rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #7a5c2f;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.structure-btn + .structure-btn {
+  border-left: 1.5px solid #c8a86a;
+}
+
+.structure-btn.active {
+  background: #7a5c2f;
+  color: white;
+}
+
+.structure-btn:hover:not(.active) {
+  background: #f5ede0;
+}
+
 /* ── Submit button ──────────────────────────────────────────────────────────── */
 
 .submit-btn {
@@ -1151,6 +1186,27 @@ code {
   .form-group textarea:focus,
   .form-group select:focus {
     outline-color: #c8952f;
+  }
+
+  .structure-toggle {
+    border-color: #4a4030;
+  }
+
+  .structure-btn {
+    color: #aaa;
+  }
+
+  .structure-btn + .structure-btn {
+    border-color: #4a4030;
+  }
+
+  .structure-btn.active {
+    background: #7a5c2f;
+    color: #f0e8d8;
+  }
+
+  .structure-btn:hover:not(.active) {
+    background: #2e2820;
   }
 
   .random-btn {

@@ -1,9 +1,9 @@
 /**
- * DungeonMap — SVG renderer for a single dungeon level.
+ * DungeonMap — SVG renderer for a single dungeon or building level.
  */
 
 import type { ReactNode } from 'react'
-import type { MapData, MapRoom, StairMarker } from '@dungeon/shared'
+import type { MapData, MapRoom, StairMarker, BuildingDoor } from '@dungeon/shared'
 
 const TILE = 22
 const WALL = 3
@@ -14,25 +14,28 @@ interface Props {
   onRoomClick: (roomId: number) => void
 }
 
-// ─── Wall edge computation ────────────────────────────────────────────────────
+// ─── Unified wall edge computation ───────────────────────────────────────────
+//
+// roomOf maps "x,y" → roomId for every occupied tile.
+// Corridor tiles use id -1; building tiles use their room id.
+// A wall is drawn on any edge where the neighbour is absent from the map
+// OR belongs to a different room/type.
 
-function wallPaths(occupied: Set<string>, allTiles: Array<[number, number]>, roomTiles: Set<string>): string {
-  const segs: string[] = []
+function wallPaths(allTiles: Array<[number, number]>, roomOf: Map<string, number>): string {
   const dirs: Array<[number, number, 'h' | 'v', number, number]> = [
     [0, -1, 'h', 0, 0],
     [0,  1, 'h', 0, 1],
     [-1, 0, 'v', 0, 0],
     [ 1, 0, 'v', 1, 0],
   ]
+  const segs: string[] = []
   for (const [tx, ty] of allTiles) {
-    const isRoom = roomTiles.has(`${tx},${ty}`)
+    const myId = roomOf.get(`${tx},${ty}`) ?? -1
     for (const [dx, dy, axis, ox, oy] of dirs) {
-      const nx = tx + dx, ny = ty + dy
-      const neighborOccupied = occupied.has(`${nx},${ny}`)
-      const neighborIsRoom   = roomTiles.has(`${nx},${ny}`)
-      // Draw a wall whenever the neighbour is empty OR whenever we cross a
-      // room↔corridor boundary (so corridors running beside rooms get a wall).
-      if (!neighborOccupied || isRoom !== neighborIsRoom) {
+      const nk = `${tx + dx},${ty + dy}`
+      const neighborMissing = !roomOf.has(nk)
+      const neighborId      = roomOf.get(nk) ?? -1
+      if (neighborMissing || myId !== neighborId) {
         const px = (tx + ox) * TILE
         const py = (ty + oy) * TILE
         segs.push(axis === 'h'
@@ -71,23 +74,17 @@ function roomGridLines(room: MapRoom): ReactNode {
   return lines
 }
 
-// ─── Door detection ───────────────────────────────────────────────────────────
-//
-// A door belongs only at the exact point where a corridor enters or exits its
-// connected room.  We find those points by scanning each corridor's tile list
-// for the room→corridor and corridor→room transitions, then place one door at
-// each transition.  This avoids spurious doors where a corridor runs alongside
-// a room it isn't actually connected to.
+// ─── Door detection (dungeon corridors) ──────────────────────────────────────
 
 interface DoorMarker {
-  px: number   // pixel x of door centre (on the wall edge)
-  py: number   // pixel y of door centre
+  px: number
+  py: number
   axis: 'v' | 'h'
 }
 
 function placeDoor(
-  tx: number, ty: number,   // corridor tile just outside the room
-  dx: number, dy: number,   // direction from corridor tile toward room tile
+  tx: number, ty: number,
+  dx: number, dy: number,
   doors: DoorMarker[],
   placed: Set<string>,
 ): void {
@@ -110,94 +107,78 @@ function computeDoors(corridors: MapData['corridors'], roomTiles: Set<string>): 
     const tiles = corridor.tiles
     if (tiles.length === 0) continue
 
-    // Find the first non-room tile (corridor exits fromRoom here).
     let s = 0
     while (s < tiles.length && roomTiles.has(`${tiles[s]![0]},${tiles[s]![1]}`)) s++
-
-    // Find the last non-room tile (corridor enters toRoom here).
     let e = tiles.length - 1
     while (e >= 0 && roomTiles.has(`${tiles[e]![0]},${tiles[e]![1]}`)) e--
-
     if (s > e) continue
 
-    // Door at the fromRoom exit.
     if (s > 0) {
-      // Tile list includes room tiles — transition is at s-1 → s.
       const [tx, ty] = tiles[s]!
       const [rx, ry] = tiles[s - 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     } else if (tiles.length >= 2) {
-      // No room tiles at start. The room must be directly behind tile[0],
-      // i.e. opposite to the direction of travel (tile[0] → tile[1]).
       const [tx, ty] = tiles[0]!
       const [nx, ny] = tiles[1]!
-      const dx = tx - nx   // reverse travel direction
-      const dy = ty - ny
+      const dx = tx - nx, dy = ty - ny
       if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
         placeDoor(tx, ty, dx, dy, doors, placed)
       } else {
-        // Corner geometry — scan all 4 neighbours as fallback.
         for (const [fdx, fdy] of DOOR_DIRS) {
-          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
-            placeDoor(tx, ty, fdx, fdy, doors, placed)
-            break
-          }
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) { placeDoor(tx, ty, fdx, fdy, doors, placed); break }
         }
       }
     }
 
-    // Door at the toRoom entry.
     if (e < tiles.length - 1) {
-      // Tile list includes room tiles — transition is at e → e+1.
       const [tx, ty] = tiles[e]!
       const [rx, ry] = tiles[e + 1]!
       placeDoor(tx, ty, rx - tx, ry - ty, doors, placed)
     } else if (tiles.length >= 2) {
-      // No room tiles at end. The room must be directly ahead of tile[e],
-      // i.e. in the direction of travel (tile[e-1] → tile[e]).
       const [tx, ty] = tiles[e]!
       const [px, py] = tiles[e - 1]!
-      const dx = tx - px   // forward travel direction
-      const dy = ty - py
+      const dx = tx - px, dy = ty - py
       if (roomTiles.has(`${tx + dx},${ty + dy}`)) {
         placeDoor(tx, ty, dx, dy, doors, placed)
       } else {
         for (const [fdx, fdy] of DOOR_DIRS) {
-          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) {
-            placeDoor(tx, ty, fdx, fdy, doors, placed)
-            break
-          }
+          if (roomTiles.has(`${tx + fdx},${ty + fdy}`)) { placeDoor(tx, ty, fdx, fdy, doors, placed); break }
         }
       }
     }
   }
-
   return doors
+}
+
+// ─── Building door markers ────────────────────────────────────────────────────
+
+function buildingDoorMarkers(buildingDoors: BuildingDoor[]): DoorMarker[] {
+  return buildingDoors.map((d) => ({
+    axis: d.axis,
+    px: d.axis === 'v' ? d.wallX * TILE            : d.wallX * TILE + TILE / 2,
+    py: d.axis === 'h' ? d.wallY * TILE            : d.wallY * TILE + TILE / 2,
+  }))
 }
 
 // ─── Door glyph ──────────────────────────────────────────────────────────────
 
 function DoorGlyph({ door }: { door: DoorMarker }) {
-  const gap    = TILE * 0.58   // length of wall to erase
-  const slabW  = 2.5           // door thickness (px)
-  const slabLen = TILE * 0.52  // door length
+  const gap     = TILE * 0.58
+  const slabW   = 2.5
+  const slabLen = TILE * 0.52
 
   if (door.axis === 'v') {
     return (
       <g>
-        <rect x={door.px - WALL} y={door.py - gap / 2}
-          width={WALL * 2} height={gap} fill="white" />
-        <rect x={door.px - slabW / 2} y={door.py - slabLen / 2}
-          width={slabW} height={slabLen} fill="#2a2a2a" />
+        <rect x={door.px - WALL} y={door.py - gap / 2} width={WALL * 2} height={gap} fill="white" />
+        <rect x={door.px - slabW / 2} y={door.py - slabLen / 2} width={slabW} height={slabLen} fill="#2a2a2a" />
       </g>
     )
   }
   return (
     <g>
-      <rect x={door.px - gap / 2} y={door.py - WALL}
-        width={gap} height={WALL * 2} fill="white" />
-      <rect x={door.px - slabLen / 2} y={door.py - slabW / 2}
-        width={slabLen} height={slabW} fill="#2a2a2a" />
+      <rect x={door.px - gap / 2} y={door.py - WALL} width={gap} height={WALL * 2} fill="white" />
+      <rect x={door.px - slabLen / 2} y={door.py - slabW / 2} width={slabLen} height={slabW} fill="#2a2a2a" />
     </g>
   )
 }
@@ -209,25 +190,19 @@ function StairGlyph({ stair }: { stair: StairMarker }) {
   const cy = stair.y * TILE + TILE / 2
   const up = stair.direction === 'up'
 
-  const rw = TILE * 0.8
-  const rh = TILE * 0.55
-  const rx = cx - rw / 2
-  const ry = cy - rh / 2
-
+  const rw = TILE * 0.8, rh = TILE * 0.55
+  const rx = cx - rw / 2, ry = cy - rh / 2
   const numLines = 3
   const stepLines: ReactNode[] = []
   for (let i = 1; i <= numLines; i++) {
     const lineY = ry + (rh / (numLines + 1)) * i
     stepLines.push(
-      <line key={i}
-        x1={rx + 1} y1={lineY} x2={rx + rw - 1} y2={lineY}
-        stroke="#2a2a2a" strokeWidth={0.8}
-      />
+      <line key={i} x1={rx + 1} y1={lineY} x2={rx + rw - 1} y2={lineY} stroke="#2a2a2a" strokeWidth={0.8} />
     )
   }
 
   const arrowOffset = rh / 2 + 5
-  const arrowY = up ? cy - arrowOffset : cy + arrowOffset
+  const arrowY    = up ? cy - arrowOffset : cy + arrowOffset
   const arrowSize = 3.5
   const arrowPath = up
     ? `M ${cx} ${arrowY - arrowSize} L ${cx - arrowSize} ${arrowY + arrowSize} L ${cx + arrowSize} ${arrowY + arrowSize} Z`
@@ -235,13 +210,10 @@ function StairGlyph({ stair }: { stair: StairMarker }) {
 
   return (
     <g className="stair-glyph" pointerEvents="none">
-      <rect x={rx} y={ry} width={rw} height={rh}
-        fill="white" stroke="#2a2a2a" strokeWidth={1.2} />
+      <rect x={rx} y={ry} width={rw} height={rh} fill="white" stroke="#2a2a2a" strokeWidth={1.2} />
       {stepLines}
-      <text x={cx} y={ry + rh + 7}
-        textAnchor="middle" dominantBaseline="central"
-        fontSize={5.5} fontFamily="sans-serif" fontWeight="700"
-        fill="#2a2a2a" letterSpacing={0.5}>
+      <text x={cx} y={ry + rh + 7} textAnchor="middle" dominantBaseline="central"
+        fontSize={5.5} fontFamily="sans-serif" fontWeight="700" fill="#2a2a2a" letterSpacing={0.5}>
         {up ? 'UP' : 'DN'}
       </text>
       <path d={arrowPath} fill="#2a2a2a" />
@@ -253,36 +225,42 @@ function StairGlyph({ stair }: { stair: StairMarker }) {
 
 export default function DungeonMap({ mapData, selectedRoomId, onRoomClick }: Props) {
   const { width, height, rooms, corridors, stairs } = mapData
+  const isBuilding = mapData.mapType === 'building'
 
+  // Build roomOf map: tile coord → roomId (rooms get their id; corridor tiles get -1).
+  const roomOf   = new Map<string, number>()
   const allTiles: Array<[number, number]> = []
-  const occupied = new Set<string>()
-  const roomTiles = new Set<string>()
 
   for (const room of rooms) {
     for (let dy = 0; dy < room.h; dy++) {
       for (let dx = 0; dx < room.w; dx++) {
-        const tx = room.x + dx
-        const ty = room.y + dy
-        allTiles.push([tx, ty])
-        occupied.add(`${tx},${ty}`)
-        roomTiles.add(`${tx},${ty}`)
+        const k = `${room.x + dx},${room.y + dy}`
+        roomOf.set(k, room.id)
+        allTiles.push([room.x + dx, room.y + dy])
       }
     }
   }
 
-  for (const corridor of corridors) {
-    for (const [cx, cy] of corridor.tiles) {
-      if (!occupied.has(`${cx},${cy}`)) {
-        allTiles.push([cx, cy])
-        occupied.add(`${cx},${cy}`)
+  // In dungeon mode, also add corridor tiles (tagged -1).
+  const roomTiles = new Set<string>(roomOf.keys())
+  if (!isBuilding) {
+    for (const corridor of corridors) {
+      for (const [cx, cy] of corridor.tiles) {
+        const k = `${cx},${cy}`
+        if (!roomOf.has(k)) {
+          roomOf.set(k, -1)
+          allTiles.push([cx, cy])
+        }
       }
     }
   }
 
-  const walls = wallPaths(occupied, allTiles, roomTiles)
-  const doors = computeDoors(corridors, roomTiles)
+  const walls = wallPaths(allTiles, roomOf)
+  const doors = isBuilding
+    ? buildingDoorMarkers(mapData.buildingDoors ?? [])
+    : computeDoors(corridors, roomTiles)
 
-  const svgW = width * TILE
+  const svgW = width  * TILE
   const svgH = height * TILE
 
   return (
@@ -293,19 +271,16 @@ export default function DungeonMap({ mapData, selectedRoomId, onRoomClick }: Pro
       height={svgH}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Rock background */}
-      <rect x={0} y={0} width={svgW} height={svgH} fill="#c8c8c8" />
+      {/* Background: rock for dungeons, white for buildings */}
+      <rect x={0} y={0} width={svgW} height={svgH} fill={isBuilding ? 'white' : '#c8c8c8'} />
 
-      {/* Corridor fills */}
-      {corridors.map((c, ci) =>
+      {/* Dungeon-only: corridor fills */}
+      {!isBuilding && corridors.map((c, ci) =>
         c.tiles
           .filter(([tx, ty]) => !roomTiles.has(`${tx},${ty}`))
           .map(([tx, ty], ti) => (
             <rect key={`ct-${ci}-${ti}`}
-              x={tx * TILE} y={ty * TILE}
-              width={TILE} height={TILE}
-              fill="white"
-            />
+              x={tx * TILE} y={ty * TILE} width={TILE} height={TILE} fill="white" />
           ))
       )}
 
@@ -324,7 +299,7 @@ export default function DungeonMap({ mapData, selectedRoomId, onRoomClick }: Pro
       {/* Walls */}
       <path d={walls} stroke="black" strokeWidth={WALL} strokeLinecap="square" fill="none" />
 
-      {/* Doors — punched through the walls */}
+      {/* Doors */}
       {doors.map((door, i) => <DoorGlyph key={`door-${i}`} door={door} />)}
 
       {/* Room selection highlight */}
@@ -349,8 +324,7 @@ export default function DungeonMap({ mapData, selectedRoomId, onRoomClick }: Pro
             onClick={() => onRoomClick(room.id)}
             style={{ cursor: 'pointer' }}
           >
-            <rect
-              x={room.x * TILE} y={room.y * TILE}
+            <rect x={room.x * TILE} y={room.y * TILE}
               width={room.w * TILE} height={room.h * TILE}
               fill="transparent" className="map-room-hit"
             />

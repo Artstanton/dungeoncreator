@@ -40,6 +40,9 @@ model Dungeon {
 
   notes String?
 
+  structureType String @default("dungeon") // 'dungeon' | 'building'
+  buildingType  String? // 'tavern' | 'inn' | 'castle' | etc.
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

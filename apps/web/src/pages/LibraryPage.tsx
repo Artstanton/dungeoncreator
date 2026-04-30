@@ -5,6 +5,11 @@ import type { DungeonListItem } from '@dungeon/shared'
 import Navbar from '../components/Navbar'
 
 const DIR_LABEL: Record<string, string> = { up: '↑ Ascending', down: '↓ Descending', both: '↕ Both' }
+const BUILDING_LABEL: Record<string, string> = {
+  tavern: 'Tavern', inn: 'Inn', castle: 'Castle', manor: 'Manor',
+  temple: 'Temple', guild: 'Guild', keep: 'Keep', warehouse: 'Warehouse',
+  barracks: 'Barracks', library: 'Library',
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -157,9 +162,10 @@ export default function LibraryPage() {
                         </span>{' '}
                         {d.levelCount}
                       </span>
-                      <span className="dungeon-card__chip">
-                        {DIR_LABEL[d.direction] ?? d.direction}
-                      </span>
+                      {d.structureType === 'building'
+                        ? <span className="dungeon-card__chip">{BUILDING_LABEL[d.buildingType ?? ''] ?? d.buildingType ?? 'Building'}</span>
+                        : <span className="dungeon-card__chip">{DIR_LABEL[d.direction] ?? d.direction}</span>
+                      }
                     </div>
 
                     <div className="dungeon-card__footer">

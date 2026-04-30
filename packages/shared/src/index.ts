@@ -43,6 +43,15 @@ export type CreateCampaignInput = z.infer<typeof createCampaignInput>
 export const directionSchema = z.enum(['up', 'down', 'both'])
 export type Direction = z.infer<typeof directionSchema>
 
+export const structureTypeSchema = z.enum(['dungeon', 'building'])
+export type StructureType = z.infer<typeof structureTypeSchema>
+
+export const buildingTypeSchema = z.enum([
+  'tavern', 'inn', 'castle', 'manor', 'temple',
+  'guild', 'keep', 'warehouse', 'barracks', 'library',
+])
+export type BuildingType = z.infer<typeof buildingTypeSchema>
+
 export const dungeonSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -54,6 +63,8 @@ export const dungeonSchema = z.object({
   direction: directionSchema,
   /** 1 = sprawling (long corridors), 3 = normal, 5 = compact (tight rooms) */
   density: z.number().int().min(1).max(5).default(3),
+  structureType: structureTypeSchema.default('dungeon'),
+  buildingType: buildingTypeSchema.nullable(),
   specificTreasures: z.array(z.string()),
   specificEncounters: z.array(z.string()),
   notes: z.string().nullable(),
@@ -92,6 +103,8 @@ export const createDungeonInput = z.object({
   direction: directionSchema.default('down'),
   /** 1 = sprawling, 2 = open, 3 = normal, 4 = dense, 5 = compact */
   density: z.number().int().min(1).max(5).default(3),
+  structureType: structureTypeSchema.default('dungeon'),
+  buildingType: buildingTypeSchema.nullable().optional(),
   specificTreasures: z.array(z.string()).default([]),
   specificEncounters: z.array(z.string()).default([]),
   notes: z.string().optional(),
@@ -193,6 +206,8 @@ export const dungeonListItemSchema = z.object({
   crMax: z.number().int(),
   direction: directionSchema,
   density: z.number().int(),
+  structureType: structureTypeSchema,
+  buildingType: buildingTypeSchema.nullable(),
   levelCount: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -235,6 +250,23 @@ export const stairMarkerSchema = z.object({
 export type StairMarker = z.infer<typeof stairMarkerSchema>
 
 /**
+ * A doorway between two adjacent rooms in a building floor plan.
+ * Position is in tile coordinates; the renderer multiplies by TILE_PX.
+ * axis='v': wall runs vertically (door is on left/right boundary), wallX is the column
+ *           where the wall sits (right edge of the left room / left edge of the right room).
+ * axis='h': wall runs horizontally (door is on top/bottom boundary), wallY is the row.
+ */
+export const buildingDoorSchema = z.object({
+  fromRoom: z.number().int(),
+  toRoom: z.number().int(),
+  wallX: z.number().int(),
+  wallY: z.number().int(),
+  axis: z.enum(['h', 'v']),
+})
+
+export type BuildingDoor = z.infer<typeof buildingDoorSchema>
+
+/**
  * Full map layout for one dungeon level.
  * Stored as JSON in level.mapData.
  */
@@ -246,6 +278,10 @@ export const mapDataSchema = z.object({
   rooms: z.array(mapRoomSchema),
   corridors: z.array(corridorSchema),
   stairs: z.array(stairMarkerSchema),
+  /** 'dungeon' (default) or 'building' — tells the renderer which mode to use. */
+  mapType: z.enum(['dungeon', 'building']).optional(),
+  /** Explicit door positions for building maps (absent for dungeon maps). */
+  buildingDoors: z.array(buildingDoorSchema).optional(),
 })
 
 export type MapData = z.infer<typeof mapDataSchema>

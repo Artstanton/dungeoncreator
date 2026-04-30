@@ -4,7 +4,22 @@ import { createDungeonInput, type CampaignListItem, type DungeonProgress } from 
 import { getCampaigns, createDungeon, getDungeonProgress } from '../api/client'
 import Navbar from '../components/Navbar'
 
-type Direction = 'up' | 'down' | 'both'
+type Direction     = 'up' | 'down' | 'both'
+type StructureType = 'dungeon' | 'building'
+type BuildingType  = 'tavern' | 'inn' | 'castle' | 'manor' | 'temple' | 'guild' | 'keep' | 'warehouse' | 'barracks' | 'library'
+
+const BUILDING_TYPE_LABELS: Record<BuildingType, string> = {
+  tavern:    'Tavern',
+  inn:       'Inn',
+  castle:    'Castle',
+  manor:     'Manor House',
+  temple:    'Temple / Shrine',
+  guild:     'Guild Hall',
+  keep:      'Keep / Fortress',
+  warehouse: 'Warehouse / Depot',
+  barracks:  'Barracks',
+  library:   'Library / Archive',
+}
 
 interface FormValues {
   name: string
@@ -14,6 +29,8 @@ interface FormValues {
   crMax: number
   direction: Direction
   density: number
+  structureType: StructureType
+  buildingType: BuildingType
   floorCount: number
   roomsMin: number
   roomsMax: number
@@ -40,6 +57,8 @@ const DEFAULTS: FormValues = {
   crMax: 5,
   direction: 'down',
   density: 3,
+  structureType: 'dungeon',
+  buildingType: 'tavern',
   floorCount: 1,
   roomsMin: 4,
   roomsMax: 10,
@@ -163,14 +182,19 @@ export function CreateDungeonPage() {
     setErrors({})
     setSubmitError(null)
 
+    const isBuilding = form.structureType === 'building'
+
     // Build the payload — omit undefined fields so Zod defaults kick in.
     const payload = {
       name: form.name,
       ...(form.campaignName.trim() ? { campaignName: form.campaignName.trim() } : {}),
       ...(random.theme || !form.theme.trim() ? {} : { theme: form.theme.trim() }),
       ...(random.cr ? {} : { crMin: form.crMin, crMax: form.crMax }),
-      direction: form.direction,
+      // Buildings always ascend; direction selector is hidden for buildings.
+      direction: isBuilding ? 'up' : form.direction,
       density: form.density,
+      structureType: form.structureType,
+      ...(isBuilding ? { buildingType: form.buildingType } : {}),
       ...(random.floorCount ? {} : { floorCount: form.floorCount }),
       ...(random.roomsPerFloor ? {} : { roomsMin: form.roomsMin, roomsMax: form.roomsMax }),
       specificEncounters: random.specificEncounters ? [] : form.specificEncounters,
@@ -228,7 +252,7 @@ export function CreateDungeonPage() {
 
     const statusText =
       !progress || total === 0
-        ? 'Resolving dungeon parameters…'
+        ? 'Resolving parameters…'
         : complete >= total
           ? 'Wrapping up…'
           : `Generating floor ${complete + 1} of ${total}…`
@@ -278,15 +302,59 @@ export function CreateDungeonPage() {
 
       <form onSubmit={handleSubmit} noValidate>
 
-        {/* ── Dungeon name ──────────────────────────────────────────────────── */}
+        {/* ── Structure type ────────────────────────────────────────────────── */}
         <div className="form-group">
-          <label htmlFor="name">Dungeon name <span className="required">*</span></label>
+          <label>Type</label>
+          <div className="structure-toggle">
+            <button
+              type="button"
+              className={`structure-btn${form.structureType === 'dungeon' ? ' active' : ''}`}
+              onClick={() => setField('structureType', 'dungeon')}
+            >
+              Dungeon
+            </button>
+            <button
+              type="button"
+              className={`structure-btn${form.structureType === 'building' ? ' active' : ''}`}
+              onClick={() => setField('structureType', 'building')}
+            >
+              Building
+            </button>
+          </div>
+        </div>
+
+        {/* ── Building type (buildings only) ───────────────────────────────── */}
+        {form.structureType === 'building' && (
+          <div className="form-group">
+            <label htmlFor="buildingType">Building type</label>
+            <select
+              id="buildingType"
+              value={form.buildingType}
+              onChange={(e) => setField('buildingType', e.target.value as BuildingType)}
+            >
+              {(Object.entries(BUILDING_TYPE_LABELS) as [BuildingType, string][]).map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* ── Name ─────────────────────────────────────────────────────────── */}
+        <div className="form-group">
+          <label htmlFor="name">
+            {form.structureType === 'building' ? 'Building name' : 'Dungeon name'}{' '}
+            <span className="required">*</span>
+          </label>
           <input
             id="name"
             type="text"
             value={form.name}
             onChange={(e) => setField('name', e.target.value)}
-            placeholder="e.g. Tomb of the Hollow King"
+            placeholder={
+              form.structureType === 'building'
+                ? 'e.g. The Rusty Flagon'
+                : 'e.g. Tomb of the Hollow King'
+            }
             autoComplete="off"
           />
           {errors['name'] && <span className="field-error">{errors['name']}</span>}
@@ -382,36 +450,40 @@ export function CreateDungeonPage() {
           </button>
         </div>
 
-        {/* ── Direction ────────────────────────────────────────────────────── */}
-        <div className="form-group">
-          <label htmlFor="direction">Floor direction</label>
-          <select
-            id="direction"
-            value={form.direction}
-            onChange={(e) => setField('direction', e.target.value as Direction)}
-          >
-            <option value="down">Down (deeper levels)</option>
-            <option value="up">Up (ascending tower)</option>
-            <option value="both">Both directions</option>
-          </select>
-        </div>
+        {/* ── Direction (dungeons only) ─────────────────────────────────────── */}
+        {form.structureType === 'dungeon' && (
+          <div className="form-group">
+            <label htmlFor="direction">Floor direction</label>
+            <select
+              id="direction"
+              value={form.direction}
+              onChange={(e) => setField('direction', e.target.value as Direction)}
+            >
+              <option value="down">Down (deeper levels)</option>
+              <option value="up">Up (ascending tower)</option>
+              <option value="both">Both directions</option>
+            </select>
+          </div>
+        )}
 
-        {/* ── Map density ──────────────────────────────────────────────────── */}
-        <div className="form-group">
-          <label htmlFor="density">Map density</label>
-          <select
-            id="density"
-            value={form.density}
-            onChange={(e) => setField('density', Number(e.target.value))}
-          >
-            <option value={1}>Sprawling — long corridors, cave-like</option>
-            <option value={2}>Open — relaxed spacing</option>
-            <option value={3}>Normal — balanced</option>
-            <option value={4}>Dense — tight corridors</option>
-            <option value={5}>Compact — rooms nearly touching</option>
-          </select>
-          <p className="hint">Controls how tightly rooms are packed on the map.</p>
-        </div>
+        {/* ── Map density (dungeons only) ───────────────────────────────────── */}
+        {form.structureType === 'dungeon' && (
+          <div className="form-group">
+            <label htmlFor="density">Map density</label>
+            <select
+              id="density"
+              value={form.density}
+              onChange={(e) => setField('density', Number(e.target.value))}
+            >
+              <option value={1}>Sprawling — long corridors, cave-like</option>
+              <option value={2}>Open — relaxed spacing</option>
+              <option value={3}>Normal — balanced</option>
+              <option value={4}>Dense — tight corridors</option>
+              <option value={5}>Compact — rooms nearly touching</option>
+            </select>
+            <p className="hint">Controls how tightly rooms are packed on the map.</p>
+          </div>
+        )}
 
         {/* ── Floor count ──────────────────────────────────────────────────── */}
         <div className="random-row">
@@ -642,7 +714,9 @@ export function CreateDungeonPage() {
         {submitError && <div className="submit-error">{submitError}</div>}
 
         <button type="submit" className="submit-btn" disabled={submitting}>
-          {submitting ? 'Generating dungeon… (this may take a minute)' : 'Create dungeon'}
+          {submitting
+            ? `Generating ${form.structureType}… (this may take a minute)`
+            : `Create ${form.structureType}`}
         </button>
       </form>
       </main>
